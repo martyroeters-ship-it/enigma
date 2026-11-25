@@ -7,6 +7,7 @@ delegation is idempotent, and every step is checkpointed before the next begins.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -284,18 +285,18 @@ class CycleDriver:
         if not self._done(micro):
             self._save(cycle_id, state)
             return False
-        quant = self._task(
-            cycle_id,
-            "quant.hypothesize",
-            {
-                "objective_id": state["objective_id"],
-                "evidence_ids": state["evidence_ids"],
-                "dataset_version_id": dataset_id,
-                "analysis_id": micro.outputs["analysis_id"],
-                "proposal_id": state.get("proposal_id"),
-                "cycle_id": cycle_id,
-            },
-        )
+        quant_inputs: dict[str, Any] = {
+            "objective_id": state["objective_id"],
+            "evidence_ids": state["evidence_ids"],
+            "dataset_version_id": dataset_id,
+            "analysis_id": micro.outputs["analysis_id"],
+            "proposal_id": state.get("proposal_id"),
+            "cycle_id": cycle_id,
+        }
+        # Opt-in LLM hypothesis path (default remains deterministic templates).
+        if os.environ.get("ENIGMA_HYPOTHESIS_MODE", "").strip().lower() == "llm":
+            quant_inputs["hypothesis_mode"] = "llm"
+        quant = self._task(cycle_id, "quant.hypothesize", quant_inputs)
         state["tasks"]["quant"] = quant.id
         if (failed := self._failed(quant)) is not None:
             self.abort(cycle_id, f"hypothesis task failed: {failed.error}")
