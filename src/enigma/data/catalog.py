@@ -190,6 +190,9 @@ class DataCatalog:
             "row_counts": rows_per_symbol,
             "retrieved_at": retrieved_at.isoformat(),
             "http_requests": {"data.binance.vision": binance_requests, "okx": okx_requests},
+            "okx_cross_check": _okx_cross_check_status(
+                self.okx_cross_check, okx_frames is not None, OKX_HISTORY_DAYS
+            ),
             "hash_scheme": HASH_SCHEME,
             "library_versions": _library_versions(),
             "user_agent": self.client.http.user_agent,
@@ -244,9 +247,11 @@ class DataCatalog:
     ) -> tuple[dict[str, pl.DataFrame] | None, int]:
         if not self.okx_cross_check:
             return None, 0
+        window_start = max(start, now - timedelta(days=OKX_HISTORY_DAYS))
+        if window_start >= end:
+            return None, 0
         client = self.okx_client or OkxFundingClient()
         before = client.http_requests
-        window_start = max(start, now - timedelta(days=OKX_HISTORY_DAYS))
         frames = {
             symbol: client.fetch_funding_history(
                 okx_swap_id(symbol), window_start, end + timedelta(microseconds=1)
@@ -315,3 +320,14 @@ class DataCatalog:
         return frame.filter(
             (pl.col("symbol") == key) & (pl.col("ts") >= _utc(start)) & (pl.col("ts") < _utc(end))
         ).sort("ts")
+
+
+def _okx_cross_check_status(enabled: bool, ran: bool, history_days: int) -> str:
+    if not enabled:
+        return "disabled"
+    if ran:
+        return "ran"
+    return (
+        f"not_applicable: OKX publishes only the last {history_days} days of funding "
+        "history and this dataset ends before that window"
+    )

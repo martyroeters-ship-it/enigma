@@ -187,3 +187,24 @@ def test_unknown_dataset_and_empty_range(
         )
     with pytest.raises(ValueError):
         catalog.acquire_perp_funding_panel(["BTCUSDT"], END, START)
+
+
+def test_okx_cross_check_not_applicable_before_okx_history_window(
+    tmp_path: Path, server: RecordedServer
+) -> None:
+    clock = FrozenClock(datetime(2026, 1, 1, tzinfo=UTC))
+    client = BinanceArchiveClient(tmp_path / "raw" / "binance", http=make_http(server), clock=clock)
+    catalog = DataCatalog(
+        tmp_path,
+        None,
+        Plane.RESEARCH,
+        AgentRole.DATA_ENGINEERING,
+        client=client,
+        clock=clock,
+        okx_cross_check=True,
+    )
+    ds = catalog.acquire_perp_funding_panel(SYMBOLS, START, END)
+    assert ds.provenance["http_requests"]["okx"] == 0
+    assert ds.provenance["okx_cross_check"].startswith("not_applicable")
+    assert "okx_funding_cross_check" not in {c.name for c in ds.quality.checks}
+    assert ds.quality.passed
