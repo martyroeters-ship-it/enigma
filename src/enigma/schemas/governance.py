@@ -145,6 +145,8 @@ class ImprovementProposal(StrictModel):
     baseline_metric_value: float | None = None
     evidence_ids: tuple[str, ...] = ()
     postmortem_ids: tuple[str, ...] = ()
+    benchmark_id: str | None = None
+    measured_lift: float | None = None
     proposed_by: Actor
     status: ProposalStatus = ProposalStatus.PROPOSED
     requires_human_approval: bool = False
@@ -155,6 +157,11 @@ class ImprovementProposal(StrictModel):
         adopted = self.status in {ProposalStatus.APPROVED, ProposalStatus.ROLLED_OUT}
         if adopted and not self.postmortem_ids:
             raise ValueError("adoption requires a postmortem id")
+        if self.status is ProposalStatus.ROLLED_OUT:
+            if not self.benchmark_id:
+                raise ValueError("rollout requires a benchmark id")
+            if self.measured_lift is None or self.measured_lift <= 0:
+                raise ValueError("rollout requires positive measured lift")
         return self
 
 

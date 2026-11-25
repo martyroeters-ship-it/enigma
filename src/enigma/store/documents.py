@@ -44,6 +44,7 @@ from enigma.schemas.learning import ForecastRecord, Postmortem
 from enigma.schemas.market import MarketObservation, MarketScanReport
 from enigma.schemas.narrative import NarrativeEvent
 from enigma.schemas.portfolio import PortfolioProposal
+from enigma.schemas.prediction import PredictionMarketSnapshot
 from enigma.schemas.quant import (
     DatasetAcquisitionRequest,
     GenerationResult,
@@ -125,6 +126,7 @@ for _model, _kind, _plane in (
     (MarketScanReport, "market_scan", Plane.CONTROL),
     (NarrativeEvent, "narrative_event", Plane.RESEARCH),
     (PortfolioProposal, "portfolio_proposal", Plane.CONTROL),
+    (PredictionMarketSnapshot, "prediction_snapshot", Plane.RESEARCH),
 ):
     register_kind(_model, _kind, _plane)
 
