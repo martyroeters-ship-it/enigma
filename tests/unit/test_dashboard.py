@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,8 @@ from cycle_rig import Rig
 from fastapi.testclient import TestClient
 
 from enigma.api.app import create_app
+from enigma.api.readmodels import HEARTBEAT_PREFIX, ReadModels
+from enigma.core.clock import FrozenClock
 from enigma.core.config import Settings
 
 
@@ -49,3 +52,13 @@ def test_dashboard_shows_recorded_cycle(completed: tuple[Rig, str]) -> None:
     agents = client.get("/api/agents").json()
     assert len(agents) == 12
     assert client.get("/api/health").json()["audit_chain_ok"] is True
+
+
+def test_worker_without_recent_heartbeat_is_shown_stale(stores) -> None:  # type: ignore[no-untyped-def]
+    stores.flags.set(HEARTBEAT_PREFIX + "host:1", "running", "worker")
+    stores.flags.set(HEARTBEAT_PREFIX + "host:2", "stopped", "worker")
+    later = FrozenClock(datetime.now(UTC) + timedelta(minutes=5))
+    status = {w["worker"]: w["status"] for w in ReadModels(stores, later).health()["workers"]}
+    assert status == {"host:1": "stale (no heartbeat)", "host:2": "stopped"}
+    fresh = {w["worker"]: w["status"] for w in ReadModels(stores).health()["workers"]}
+    assert fresh["host:1"] == "running"

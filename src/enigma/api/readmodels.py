@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import asdict
+from datetime import datetime, timedelta
 from typing import Any
 
 from enigma.agents.contracts import ContractRegistry
 from enigma.comm.bus import MessageBus
+from enigma.core.clock import Clock, SystemClock
 from enigma.core.config import Settings
 from enigma.core.errors import IntegrityError
 from enigma.fsm import (
@@ -32,11 +34,13 @@ from enigma.schemas.validation import RedactedValidationSummary, ValidationRepor
 from enigma.store import Stores
 
 HEARTBEAT_PREFIX = "heartbeat:"
+STALE_AFTER = timedelta(minutes=1)
 
 
 class ReadModels:
-    def __init__(self, stores: Stores) -> None:
+    def __init__(self, stores: Stores, clock: Clock | None = None) -> None:
         self.s = stores
+        self.clock = clock or SystemClock()
         self.fsm = StateMachineStore(stores.db, stores.audit)
         self.bus = MessageBus(stores.db, stores.audit)
 
@@ -58,13 +62,20 @@ class ReadModels:
             "workers": [
                 {
                     "worker": r["name"].removeprefix(HEARTBEAT_PREFIX),
-                    "status": r["value"],
+                    "status": self._worker_status(r["value"], r["updated_at"]),
                     "last_seen": r["updated_at"],
                 }
                 for r in beats
             ],
             "tasks": self.s.queue.counts(),
         }
+
+    def _worker_status(self, status: str, updated_at: str) -> str:
+        if status == "stopped":
+            return status
+        if self.clock.now() - datetime.fromisoformat(updated_at) > STALE_AFTER:
+            return "stale (no heartbeat)"
+        return status
 
     def cycles(self) -> list[dict[str, Any]]:
         out = []
