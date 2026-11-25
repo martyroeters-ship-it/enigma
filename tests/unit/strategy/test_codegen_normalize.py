@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from _synthetic import cost_model
 from enigma.schemas.common import AgentRole
 from enigma.schemas.governance import ExecutionMode
 from enigma.schemas.quant import BaselineSpec, FeatureDef, ParameterGrid, StrategySpec
-from enigma.strategy.codegen import _default_params, _normalize_generated_source
+from enigma.strategy.codegen import _default_params, _normalize_generated_source, _sandbox_smoke
+from enigma.strategy.package import build_package
+from enigma.strategy.static_check import check_source
 
 NOW = datetime(2026, 3, 1, tzinfo=UTC)
 
@@ -64,23 +67,55 @@ def test_default_params_include_cadence_fields() -> None:
     assert params["label_horizon_bars"] == 8
 
 
+_LLM_SLIP_SOURCE = """
+import numpy as np
+from enigma.strategy.interface import Strategy, StrategyMeta
+
+class S(Strategy):
+    def configure(self, params):
+        self.params = dict(params)
+    def required_columns(self):
+        return ("funding_rate",)
+    def metadata(self):
+        return StrategyMeta(name="S", version="1", id="hyp_x", cost_model_version="cm-test-1")
+    def target_positions(self, data):
+        x = self.inputs["funding_rate"]
+        thr = float(self.params["funding_rate_threshold"])
+        rb = int(self.params["rebalance_bars"])
+        out = np.zeros(len(x))
+        for i in range(len(x)):
+            if i % max(rb, 1) == 0 and x[i] < thr:
+                out[i] = 1.0
+            elif i > 0:
+                out[i] = out[i - 1]
+        return np.clip(out, -1.0, 1.0)
+"""
+
+
 def test_normalize_rewrites_self_inputs_and_strategy_meta_id() -> None:
-    src = (
-        "import numpy as np\n"
-        "from enigma.strategy.interface import Strategy, StrategyMeta\n\n"
-        "class S(Strategy):\n"
-        "    def configure(self, params):\n"
-        "        self.params = dict(params)\n"
-        "    def required_columns(self):\n"
-        "        return ('funding_rate',)\n"
-        "    def metadata(self):\n"
-        "        return StrategyMeta(name='S', version='1', id='hyp_x')\n"
-        "    def target_positions(self, data):\n"
-        "        x = self.inputs['funding_rate']\n"
-        "        return np.zeros(len(x))\n"
-    )
-    out = _normalize_generated_source(src)
+    out = _normalize_generated_source(_LLM_SLIP_SOURCE)
     assert "self.inputs" not in out
-    assert "data['funding_rate']" in out or 'data["funding_rate"]' in out
+    assert "data[" in out
     assert "hypothesis_id=" in out
-    assert "id=" not in out.split("StrategyMeta")[1].split(")")[0]
+    call = out.split("return StrategyMeta(", 1)[1].split(")", 1)[0]
+    assert "hypothesis_id=" in call
+    assert not any(part.strip().startswith("id=") for part in call.split(","))
+
+
+def test_normalized_slip_source_passes_sandbox_smoke() -> None:
+    spec = _spec()
+    source = _normalize_generated_source(_LLM_SLIP_SOURCE)
+    assert check_source(source, "S") == ()
+    package = build_package(
+        source,
+        "S",
+        _default_params(spec),
+        cost_model(),
+        spec.hypothesis_id,
+        name=spec.name,
+        required_columns=spec.required_columns,
+        created_by=AgentRole.STRATEGY_ENGINEERING,
+        created_at=NOW,
+        label_horizon_bars=spec.label_horizon_bars,
+    )
+    assert _sandbox_smoke(package, spec.required_columns, _default_params(spec)) == ()
