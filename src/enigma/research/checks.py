@@ -73,6 +73,62 @@ def scrub_evidence_sentinels(proposal: HypothesisProposal) -> HypothesisProposal
     )
 
 
+def normalize_proposal(
+    proposal: HypothesisProposal, context: ResearchContext
+) -> HypothesisProposal:
+    """Mechanical repairs for common LLM slips (not a template hypothesis body)."""
+    proposal = scrub_evidence_sentinels(proposal)
+    evidence_ids = context.evidence_ids()
+    columns = context.columns_by_dataset()
+    known_datasets = frozenset(columns)
+    only_dataset = next(iter(known_datasets)) if len(known_datasets) == 1 else None
+
+    required = []
+    for use in proposal.required_data:
+        updates: dict[str, object] = {}
+        if use.dataset_id not in known_datasets and only_dataset is not None:
+            updates["dataset_id"] = only_dataset
+        if use.role in {"signal", "control"} and use.min_lag_bars < 0:
+            updates["min_lag_bars"] = 0
+        required.append(use.model_copy(update=updates) if updates else use)
+
+    supporting = tuple(eid for eid in proposal.supporting_evidence_ids if eid in evidence_ids)
+    contradictory = tuple(
+        eid for eid in proposal.contradictory_evidence_ids if eid in evidence_ids
+    )
+    # If the model invented short ids, keep order by remapping ev_N → Nth context evidence.
+    if not supporting and proposal.supporting_evidence_ids and context.evidence:
+        remapped: list[str] = []
+        ordered = [e.id for e in context.evidence]
+        for eid in proposal.supporting_evidence_ids:
+            if _is_empty_evidence_sentinel(eid):
+                continue
+            match = re.fullmatch(r"ev[_-]?(\d+)", eid.strip(), flags=re.I)
+            if match:
+                idx = int(match.group(1)) - 1
+                if 0 <= idx < len(ordered):
+                    remapped.append(ordered[idx])
+        supporting = tuple(dict.fromkeys(remapped))
+
+    instruments = tuple(i for i in proposal.instruments if i in frozenset(context.instruments))
+    if not instruments:
+        instruments = tuple(context.instruments)
+
+    cost = proposal.execution_costs
+    if cost.cost_model_version != context.cost_model_version:
+        cost = cost.model_copy(update={"cost_model_version": context.cost_model_version})
+
+    return proposal.model_copy(
+        update={
+            "required_data": tuple(required),
+            "supporting_evidence_ids": supporting,
+            "contradictory_evidence_ids": contradictory,
+            "instruments": instruments,
+            "execution_costs": cost,
+        }
+    )
+
+
 def check_proposal(  # noqa: PLR0912 - each gate is an independent explicit failure path
     proposal: HypothesisProposal,
     context: ResearchContext,
@@ -85,6 +141,7 @@ def check_proposal(  # noqa: PLR0912 - each gate is an independent explicit fail
     columns = context.columns_by_dataset()
     instruments = frozenset(context.instruments)
 
+    valid_supporting = 0
     for eid in proposal.supporting_evidence_ids:
         if _is_empty_evidence_sentinel(eid):
             failures.append(
@@ -98,6 +155,15 @@ def check_proposal(  # noqa: PLR0912 - each gate is an independent explicit fail
             failures.append(
                 CheckFailure(check="evidence_exists", detail=f"unknown supporting evidence {eid}")
             )
+        else:
+            valid_supporting += 1
+    if valid_supporting == 0 and evidence_ids:
+        failures.append(
+            CheckFailure(
+                check="evidence_exists",
+                detail="at least one supporting evidence id from the context is required",
+            )
+        )
     for eid in proposal.contradictory_evidence_ids:
         if _is_empty_evidence_sentinel(eid):
             continue

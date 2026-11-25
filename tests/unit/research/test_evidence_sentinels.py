@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from enigma.research.checks import check_proposal
+from enigma.research.checks import check_proposal, normalize_proposal
 from enigma.schemas.quant import (
     ColumnUse,
     DatasetInfo,
@@ -106,3 +106,73 @@ def test_contradictory_none_sentinel_is_ignored() -> None:
     )
     failures = check_proposal(_proposal(), ctx)
     assert not any(f.check == "evidence_exists" for f in failures)
+
+
+def _ctx_with_real_ids() -> ResearchContext:
+    return ResearchContext(
+        id="ctx",
+        objective_id="obj",
+        objective="funding",
+        research_cutoff=NOW,
+        instruments=("BTCUSDT",),
+        cost_model_version="cm-binance-usdm-v1",
+        cost_bps_per_unit_turnover=2.0,
+        evidence=(
+            EvidenceExcerpt(
+                id="evid_01AAA",
+                source_id="src",
+                text="funding positive",
+                claim_level="L1",
+                topics=("funding",),
+            ),
+            EvidenceExcerpt(
+                id="evid_01BBB",
+                source_id="src2",
+                text="carry collapsed",
+                claim_level="L1",
+                topics=("funding",),
+            ),
+        ),
+        datasets=(
+            DatasetInfo(
+                dataset_version_id="dsv_01REAL",
+                name="x",
+                frequency="1h",
+                bar_hours=1.0,
+                symbols=("BTCUSDT",),
+                columns=("funding_rate", "close"),
+                coverage_start=NOW,
+                coverage_end=NOW,
+                rows=10,
+            ),
+        ),
+    )
+
+
+def test_normalize_remaps_short_evidence_and_dataset() -> None:
+    ctx = _ctx_with_real_ids()
+    draft = _proposal(
+        required_data=[
+            ColumnUse(
+                dataset_id="invented_ds", column="funding_rate", role="signal", min_lag_bars=-2
+            ),
+            ColumnUse(dataset_id="invented_ds", column="close", role="target", min_lag_bars=1),
+        ],
+        supporting_evidence_ids=("ev_1",),
+        contradictory_evidence_ids=("none",),
+        execution_costs=ExecutionCostEstimate(
+            turnover_per_bar=0.1,
+            bars_per_year=1095.0,
+            cost_bps_per_unit_turnover=2.0,
+            annual_cost_bps=219.0,
+            cost_model_version="wrong-cm",
+            rationale="fees",
+        ),
+    )
+    fixed = normalize_proposal(draft, ctx)
+    assert fixed.supporting_evidence_ids == ("evid_01AAA",)
+    assert fixed.contradictory_evidence_ids == ()
+    assert all(u.dataset_id == "dsv_01REAL" for u in fixed.required_data)
+    assert fixed.required_data[0].min_lag_bars == 0
+    assert fixed.execution_costs.cost_model_version == "cm-binance-usdm-v1"
+    assert not check_proposal(fixed, ctx)

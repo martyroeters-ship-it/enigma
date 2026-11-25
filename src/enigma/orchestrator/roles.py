@@ -285,12 +285,13 @@ class QuantResearchAgent(Agent):
                 f"LLM hypothesis generation unavailable (no silent template fallback): {exc}"
             ) from exc
         generation = GenerationResult.model_validate(raw)
+        # Persist even on failure so operators can inspect rejected drafts.
+        ctx.view.put(generation)
         if not generation.ok:
             raise RuntimeError(
                 generation.failure_reason or "LLM hypothesis generation produced no survivors"
             )
         proposal: HypothesisProposal = generation.proposals[0]
-        ctx.view.put(generation)
         hypothesis = hypothesis_from_proposal(
             proposal,
             objective_id=objective.id,

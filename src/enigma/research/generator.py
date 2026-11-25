@@ -9,7 +9,7 @@ from enigma.core.ids import new_id
 from enigma.gateway.errors import StructuredOutputError
 from enigma.gateway.prompts import PromptRegistry, PromptTemplate
 from enigma.gateway.protocol import StructuredGenerator, provenance_of
-from enigma.research.checks import acquisition_needed, check_proposal, scrub_evidence_sentinels
+from enigma.research.checks import acquisition_needed, check_proposal, normalize_proposal
 from enigma.schemas.common import AgentRole
 from enigma.schemas.governance import Budget, ExecutionMode
 from enigma.schemas.quant import (
@@ -85,7 +85,7 @@ class HypothesisGenerator:
                 created_at=now,
             )
 
-        draft = scrub_evidence_sentinels(draft)
+        draft = normalize_proposal(draft, context)
         failures = check_proposal(draft, context)
         if failures:
             rejected.append(
@@ -131,7 +131,7 @@ class HypothesisGenerator:
                     created_by=actor,
                     created_at=now,
                 )
-            draft = scrub_evidence_sentinels(draft)
+            draft = normalize_proposal(draft, context)
             failures = check_proposal(draft, context)
             if failures:
                 rejected.append(
@@ -179,12 +179,29 @@ class HypothesisGenerator:
         *,
         critique: str | None,
     ) -> tuple[HypothesisProposal, object]:
+        evidence_compact = "\n".join(
+            f"- {e.id}: {(e.text or '')[:180]}" for e in context.evidence[:24]
+        )
+        columns_by_dataset = "; ".join(
+            f"{d.dataset_version_id}=[{', '.join(d.columns)}]" for d in context.datasets
+        )
+        # Omit bulky evidence/prior bodies from the dump; allowlists are passed explicitly.
+        compact = context.model_dump(mode="json")
+        compact["evidence"] = [
+            {"id": e["id"], "topics": e.get("topics", []), "text": (e.get("text") or "")[:120]}
+            for e in compact.get("evidence", [])[:24]
+        ]
+        compact["prior_hypotheses"] = compact.get("prior_hypotheses", [])[:8]
         system, user = prompt.render(
             objective=context.objective,
             research_cutoff=context.research_cutoff.isoformat(),
             instruments=", ".join(context.instruments),
             cost_model_version=context.cost_model_version,
-            context_json=json.dumps(context.model_dump(mode="json"), indent=2)[:12000],
+            dataset_ids=", ".join(d.dataset_version_id for d in context.datasets),
+            columns_by_dataset=columns_by_dataset,
+            evidence_ids=", ".join(e.id for e in context.evidence[:40]) or "(none)",
+            evidence_compact=evidence_compact or "(none)",
+            context_json=json.dumps(compact, indent=2)[:10000],
             critique=critique or "(none)",
         )
         traced = self.llm.generate_traced(
