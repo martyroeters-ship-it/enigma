@@ -349,6 +349,25 @@ class BenchmarkReport(StrictModel):
         path.write_text(self.model_dump_json(indent=2) + "\n", encoding="utf-8")
 
 
+def choose_model(summary: Sequence[ModelSummary]) -> ModelSummary | None:
+    """Pick a measured model by score, then latency, then cost.
+
+    Unscored rows are ignored. An empty measured set returns None rather than a default model.
+    """
+    measured = [row for row in summary if row.mean_score is not None and row.tasks_scored > 0]
+    if not measured:
+        return None
+    return min(
+        measured,
+        key=lambda row: (
+            -(row.mean_score or 0.0),
+            row.mean_latency_ms if row.mean_latency_ms is not None else float("inf"),
+            row.total_cost_usd,
+            row.model_alias,
+        ),
+    )
+
+
 def _summarize(results: Sequence[BenchmarkResult]) -> tuple[ModelSummary, ...]:
     out: list[ModelSummary] = []
     for alias in dict.fromkeys(r.model_alias for r in results):

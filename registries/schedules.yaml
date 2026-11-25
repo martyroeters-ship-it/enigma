@@ -14,3 +14,5 @@ tech_scan_topics:
   - backtesting framework python vectorized
   - deflated sharpe ratio multiple testing
   - crypto perpetual funding rate dataset
+# Deterministic funding/basis scan of observations already in the store. No orders.
+market_scan_interval_hours: 1

@@ -29,6 +29,7 @@ from enigma.orchestrator.cio import (
     allocate,
 )
 from enigma.orchestrator.institution import Institution
+from enigma.orchestrator.market_scan import run_market_scan
 from enigma.orchestrator.planning import build_inputs, proposal_candidates, read_record
 from enigma.schemas.common import AgentRole
 from enigma.schemas.cycle import NextExperimentProposal, ProposalState
@@ -48,6 +49,7 @@ class Schedule:
     max_concurrent_cycles: int
     tech_scan_interval_hours: float
     tech_scan_topics: tuple[str, ...]
+    market_scan_interval_hours: float = 0.0
 
     @classmethod
     def load(cls, path: Path) -> Schedule:
@@ -60,6 +62,7 @@ class Schedule:
             max_concurrent_cycles=int(raw["max_concurrent_cycles"]),
             tech_scan_interval_hours=float(raw["tech_scan_interval_hours"]),
             tech_scan_topics=tuple(raw.get("tech_scan_topics", [])),
+            market_scan_interval_hours=float(raw.get("market_scan_interval_hours", 0)),
         )
 
 
@@ -173,6 +176,7 @@ class Daemon:
         progressed |= task is not None
         progressed |= self._chain_next_experiments()
         progressed |= self._schedule_tech_scan()
+        progressed |= self._schedule_market_scan()
         # force: a pulse may have written moments ago, and that must not swallow
         # the status this step actually finished with.
         self.heartbeat(f"running: {task.kind}" if task else "idle", force=True)
@@ -296,6 +300,15 @@ class Daemon:
             correlation_id=f"sched_tech_{window}",
         )
         return self.inst.stores.queue.counts().get("pending", 0) > before
+
+    def _schedule_market_scan(self) -> bool:
+        if self.schedule.market_scan_interval_hours <= 0:
+            return False
+        return run_market_scan(
+            self.inst.stores,
+            self.inst.clock.now(),
+            interval_hours=self.schedule.market_scan_interval_hours,
+        )
 
 
 def status_snapshot(inst: Institution) -> dict[str, Any]:

@@ -122,3 +122,9 @@ name = "Validation gates cannot import the model gateway (no LLM may influence p
 type = "forbidden"
 source_modules = ["enigma.validation"]
 forbidden_modules = ["enigma.gateway"]
+
+[[tool.importlinter.contracts]]
+name = "Validation, risk, and budget cannot call decision providers"
+type = "forbidden"
+source_modules = ["enigma.validation", "enigma.risk", "enigma.agents.budget"]
+forbidden_modules = ["enigma.decisions", "enigma.gateway"]
