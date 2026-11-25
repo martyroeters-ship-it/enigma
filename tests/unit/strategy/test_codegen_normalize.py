@@ -102,6 +102,27 @@ def test_normalize_rewrites_self_inputs_and_strategy_meta_id() -> None:
     assert not any(part.strip().startswith("id=") for part in call.split(","))
 
 
+def test_normalize_strips_mapping_annotations() -> None:
+    src = (
+        "import numpy as np\n"
+        "from enigma.strategy.interface import Strategy, StrategyMeta\n\n"
+        "class S(Strategy):\n"
+        "    def configure(self, params: Mapping[str, float]) -> None:\n"
+        "        self.params = dict(params)\n"
+        "    def required_columns(self) -> tuple[str, ...]:\n"
+        "        return ('funding_rate',)\n"
+        "    def metadata(self) -> StrategyMeta:\n"
+        "        return StrategyMeta(name='S', version='1', hypothesis_id='hyp_x')\n"
+        "    def target_positions(self, data: Mapping[str, np.ndarray]) -> np.ndarray:\n"
+        "        x = data['funding_rate']\n"
+        "        return np.zeros(len(x))\n"
+    )
+    out = _normalize_generated_source(src)
+    assert "Mapping" not in out
+    assert "def target_positions(self, data)" in out
+    assert check_source(out, "S") == ()
+
+
 def test_normalized_slip_source_passes_sandbox_smoke() -> None:
     spec = _spec()
     source = _normalize_generated_source(_LLM_SLIP_SOURCE)

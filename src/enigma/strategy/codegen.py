@@ -42,6 +42,20 @@ def _normalize_generated_source(source: str) -> str:
     source = re.sub(r"\bself\.inputs\b", "data", source)
 
     class _Rewriter(ast.NodeTransformer):
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
+            self.generic_visit(node)
+            # Drop annotations that reference Mapping/Dict without imports (NameError at runtime).
+            node.returns = None
+            for arg in node.args.args:
+                arg.annotation = None
+            for arg in node.args.kwonlyargs:
+                arg.annotation = None
+            if node.args.vararg is not None:
+                node.args.vararg.annotation = None
+            if node.args.kwarg is not None:
+                node.args.kwarg.annotation = None
+            return node
+
         def visit_Call(self, node: ast.Call) -> ast.AST:
             self.generic_visit(node)
             name = node.func.id if isinstance(node.func, ast.Name) else None
