@@ -83,3 +83,15 @@ def test_rss_feature_ignores_text_published_after_the_bar() -> None:
     bar = datetime(2026, 11, 2, tzinfo=UTC)
     assert intensity_at(events, bar) == 1
     assert intensity_at(events, datetime(2026, 11, 3, tzinfo=UTC)) == 2
+
+
+def test_rfc822_tuesday_pubdate_parses() -> None:
+    xml = """<?xml version="1.0"?>
+    <rss><channel><item>
+    <title>Desk</title><link>https://example.test/tue</link>
+    <description>note</description>
+    <pubDate>Tue, 24 Nov 2026 17:50:08 +0000</pubDate>
+    </item></channel></rss>"""
+    events = parse_rss(xml)
+    assert len(events) == 1
+    assert events[0].available_at == datetime(2026, 11, 24, 17, 50, 8, tzinfo=UTC)

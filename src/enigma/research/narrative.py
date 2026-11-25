@@ -52,7 +52,9 @@ def _when(item: ET.Element) -> datetime | None:
     raw = _text(item, "availableAt") or _text(item, "pubDate")
     if not raw:
         return None
-    if "T" in raw:
+    # RFC 822 dates start with a weekday ("Tue, ...") and also contain "T".
+    # Treat a value as ISO only when it has no comma.
+    if "T" in raw and "," not in raw:
         parsed = datetime.fromisoformat(raw)
         if parsed.tzinfo is None:
             return None
