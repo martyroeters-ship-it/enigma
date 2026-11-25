@@ -21,6 +21,7 @@ from enigma.fsm import (
     StateMachineStore,
 )
 from enigma.schemas.cycle import MarketAnalysis, NextExperimentProposal, RiskReview
+from enigma.schemas.execution import DegradationAlert, HumanRiskAcknowledge, PaperSession
 from enigma.schemas.governance import AgentDecision, ImprovementProposal, Reflection
 from enigma.schemas.knowledge import EvidenceItem, FailureCondition, KnowledgeEdge, Lesson, Source
 from enigma.schemas.research import (
@@ -255,6 +256,25 @@ class ReadModels:
             "validations": [
                 r.model_dump(mode="json")
                 for r in self.s.documents.list(ValidationReport, limit=100)
+            ],
+            "risk_reviews": [
+                r.model_dump(mode="json") for r in self.s.documents.list(RiskReview, limit=100)
+            ],
+        }
+
+    def execution(self) -> dict[str, Any]:
+        """Paper sessions, human acknowledges, and degradation alerts (M2)."""
+        return {
+            "sessions": [
+                x.model_dump(mode="json") for x in self.s.documents.list(PaperSession, limit=100)
+            ],
+            "acknowledges": [
+                x.model_dump(mode="json")
+                for x in self.s.documents.list(HumanRiskAcknowledge, limit=100)
+            ],
+            "degradation_alerts": [
+                x.model_dump(mode="json")
+                for x in self.s.documents.list(DegradationAlert, limit=100)
             ],
             "risk_reviews": [
                 r.model_dump(mode="json") for r in self.s.documents.list(RiskReview, limit=100)

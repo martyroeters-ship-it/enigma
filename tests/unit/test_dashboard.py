@@ -30,6 +30,7 @@ def test_empty_dashboard_renders(tmp_path: Path, stores) -> None:  # type: ignor
         "/agents",
         "/knowledge",
         "/strategies",
+        "/execution",
         "/learning",
         "/messages",
         "/models",
@@ -39,6 +40,8 @@ def test_empty_dashboard_renders(tmp_path: Path, stores) -> None:  # type: ignor
         assert r.status_code == 200, path
     assert "No research objective has been submitted" in client.get("/").text
     assert client.get("/cycles/cyc_missing").status_code == 404
+    assert "No paper sessions opened yet" in client.get("/execution").text
+    assert client.get("/api/execution").json()["sessions"] == []
 
 
 def test_dashboard_shows_recorded_cycle(completed: tuple[Rig, str]) -> None:
