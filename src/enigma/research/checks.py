@@ -52,6 +52,27 @@ def _is_empty_evidence_sentinel(eid: str) -> bool:
     return eid.strip().lower() in _EMPTY_EVIDENCE
 
 
+def scrub_evidence_sentinels(proposal: HypothesisProposal) -> HypothesisProposal:
+    """Drop none/null sentinel ids before checks and persistence."""
+    supporting = tuple(
+        eid for eid in proposal.supporting_evidence_ids if not _is_empty_evidence_sentinel(eid)
+    )
+    contradictory = tuple(
+        eid for eid in proposal.contradictory_evidence_ids if not _is_empty_evidence_sentinel(eid)
+    )
+    if (
+        supporting == proposal.supporting_evidence_ids
+        and contradictory == proposal.contradictory_evidence_ids
+    ):
+        return proposal
+    return proposal.model_copy(
+        update={
+            "supporting_evidence_ids": supporting,
+            "contradictory_evidence_ids": contradictory,
+        }
+    )
+
+
 def check_proposal(  # noqa: PLR0912 - each gate is an independent explicit failure path
     proposal: HypothesisProposal,
     context: ResearchContext,
