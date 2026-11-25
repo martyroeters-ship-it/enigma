@@ -199,10 +199,25 @@ def check_source(source: str, entrypoint: str) -> tuple[StaticViolation, ...]:
             )
     if not entrypoint.isidentifier() or _is_dunder(entrypoint):
         violations.append(StaticViolation(0, "entrypoint", f"invalid entrypoint {entrypoint!r}"))
-    elif not any(isinstance(s, ast.ClassDef) and s.name == entrypoint for s in tree.body):
-        violations.append(
-            StaticViolation(0, "entrypoint", f"no top-level class named {entrypoint!r}")
-        )
+    else:
+        classes = [s for s in tree.body if isinstance(s, ast.ClassDef) and s.name == entrypoint]
+        if not classes:
+            violations.append(
+                StaticViolation(0, "entrypoint", f"no top-level class named {entrypoint!r}")
+            )
+        else:
+            for node in classes[0].body:
+                if isinstance(node, ast.FunctionDef) and node.name == "__init__":
+                    args = node.args
+                    n_required = len(args.args) - len(args.defaults)
+                    if n_required > 1:  # beyond self
+                        violations.append(
+                            StaticViolation(
+                                node.lineno,
+                                "init_signature",
+                                "__init__ may only take self; use configure(params) for parameters",
+                            )
+                        )
     return tuple(sorted(violations, key=lambda v: (v.line, v.rule, v.detail)))
 
 
