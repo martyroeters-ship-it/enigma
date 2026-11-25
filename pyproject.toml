@@ -55,6 +55,7 @@ ignore = [
     "PLR2004",  # statistical thresholds are named in registries, not magic in tests
     "S101",     # assert allowed in tests (scoped below)
     "PLR0917",  # internal helpers take explicit positional args
+    "PLR0911",  # state-machine step handlers return at each guard
 ]
 
 [tool.ruff.lint.per-file-ignores]

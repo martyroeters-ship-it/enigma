@@ -20,7 +20,7 @@ may_delegate_to:
 - market_microstructure
 tools:
 - knowledge.retrieve
-- knowledge.write
+- knowledge.index
 - data.load_research
 - llm.structured
 authority:

@@ -92,6 +92,7 @@ class Hypothesis(StrictModel):
     search_space: dict[str, tuple[float | int | str, ...]] = Field(default_factory=dict)
     trial_budget: int = Field(ge=1)
     cost_model_version: NonEmptyStr
+    dataset_version_ids: tuple[str, ...] = ()
     evidence_ids: tuple[str, ...] = ()
     contradictory_evidence_ids: tuple[str, ...] = ()
     lesson_ids: tuple[str, ...] = Field(default=(), description="Prior lessons consulted")

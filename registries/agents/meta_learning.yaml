@@ -20,8 +20,10 @@ may_delegate_to:
 - technology_innovation
 tools:
 - knowledge.retrieve
-- knowledge.write
-- learning.analyze
+- knowledge.index
+- tasks.for_cycle
+- gateway.status
+- improvement.propose
 - llm.structured
 authority:
 - write lessons and reflections

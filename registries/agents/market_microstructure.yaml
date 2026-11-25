@@ -16,7 +16,6 @@ task_kinds:
 may_delegate_to: []
 tools:
 - data.load_research
-- knowledge.write
 authority:
 - publish microstructure analyses and evidence
 - advise cost-model assumptions

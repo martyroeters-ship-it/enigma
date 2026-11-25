@@ -16,10 +16,9 @@ task_kinds:
 may_delegate_to: []
 tools:
 - strategy.build
-- sandbox.run
 - backtest.run
 - data.load_research
-- experiments.register
+- lifecycle.transition
 authority:
 - build strategy packages
 - register experiments

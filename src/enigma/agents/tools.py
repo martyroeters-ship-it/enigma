@@ -18,6 +18,9 @@ class Tool:
     description: str
     plane: Plane
     fn: Callable[..., Any]
+    # When true the gateway passes the calling role as `actor`, so tools can never be invoked
+    # on behalf of another role.
+    pass_actor: bool = False
 
 
 class ToolRegistry:
@@ -60,7 +63,7 @@ class ToolGateway:
     def available(self) -> list[str]:
         return sorted(n for n in self._allow if self._registry.get(n) is not None)
 
-    def call(self, name: str, **kwargs: Any) -> Any:
+    def call(self, name: str, /, **kwargs: Any) -> Any:
         tool = self._registry.get(name)
         denied_reason = None
         if name not in self._allow:
@@ -83,6 +86,10 @@ class ToolGateway:
             self._task_id,
             {"tool": name, "args_hash": sha256_of(_hashable(kwargs))},
         )
+        if tool.pass_actor:
+            if "actor" in kwargs:
+                raise PermissionDeniedError(f"{self.actor} may not supply actor to {name}")
+            return tool.fn(actor=self.actor, **kwargs)
         return tool.fn(**kwargs)
 
 

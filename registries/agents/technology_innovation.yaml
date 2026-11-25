@@ -17,8 +17,9 @@ task_kinds:
 may_delegate_to: []
 tools:
 - intel.research
-- knowledge.write
+- knowledge.index
 - gateway.benchmark
+- gateway.status
 authority:
 - prototype in sandbox
 - submit benchmarked innovation proposals
