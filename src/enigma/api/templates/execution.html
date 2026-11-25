@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Execution{% endblock %}
+{% block content %}
+<h1>Paper execution</h1>
+<p class="muted">Paper-only. Sessions require risk CLEARANCE and a human acknowledge. Live trading is disabled.</p>
+
+<h2>Paper sessions</h2>
+{% if e.sessions %}
+<table><tr><th>Id</th><th>Package</th><th>Status</th><th>Equity</th><th>PnL</th><th>Fills</th></tr>
+{% for s in e.sessions %}<tr>
+<td class="mono">{{ s.id }}</td><td class="mono">{{ s.strategy_package_id }}</td>
+<td>{{ s.status }}</td><td class="mono">{{ '%.2f'|format(s.equity_usd) }}</td>
+<td class="mono">{{ '%.2f'|format(s.realized_pnl_usd) }}</td><td>{{ s.fill_count }}</td>
+</tr>{% endfor %}
+</table>
+{% else %}<div class="empty">No paper sessions opened yet.</div>{% endif %}
+
+<h2>Human risk acknowledges</h2>
+{% if e.acknowledges %}
+<table><tr><th>Id</th><th>Review</th><th>Package</th><th>By</th><th>Note</th></tr>
+{% for a in e.acknowledges %}<tr>
+<td class="mono">{{ a.id }}</td><td class="mono">{{ a.risk_review_id }}</td>
+<td class="mono">{{ a.strategy_package_id }}</td><td>{{ a.acknowledged_by }}</td><td>{{ a.note }}</td>
+</tr>{% endfor %}
+</table>
+{% else %}<div class="empty">No human acknowledges on file.</div>{% endif %}
+
+<h2>Degradation alerts</h2>
+{% if e.degradation_alerts %}
+<table><tr><th>Session</th><th>Kind</th><th>Severity</th><th>Message</th></tr>
+{% for d in e.degradation_alerts %}<tr>
+<td class="mono">{{ d.session_id }}</td><td>{{ d.kind }}</td>
+<td class="mono">{{ '%.3f'|format(d.severity) }}</td><td>{{ d.message }}</td>
+</tr>{% endfor %}
+</table>
+{% else %}<div class="empty">No degradation alerts.</div>{% endif %}
+
+<h2>Risk reviews</h2>
+{% if e.risk_reviews %}
+<table><tr><th>Package</th><th>Decision</th><th>Reasons</th></tr>
+{% for r in e.risk_reviews %}<tr>
+<td class="mono">{{ r.strategy_package_id }}</td><td>{{ r.decision }}</td>
+<td>{{ r.reason_codes|join(', ') }}</td>
+</tr>{% endfor %}
+</table>
+{% else %}<div class="empty">No risk reviews yet.</div>{% endif %}
+{% endblock %}
