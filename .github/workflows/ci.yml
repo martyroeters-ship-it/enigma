@@ -24,6 +24,11 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --locked
+      - name: Allow unprivileged user namespaces (strategy sandbox, ADR-016)
+        # Ubuntu 24.04 runners restrict them via AppArmor; the sandbox fails closed without them.
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          unshare --user --map-root-user --net -- /bin/true
       - name: Lint
         run: uv run ruff check . && uv run ruff format --check .
       - name: Types
