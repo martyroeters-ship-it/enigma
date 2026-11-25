@@ -23,7 +23,7 @@ def test_default_params_include_rebalance_and_holding() -> None:
 
 
 def test_normalize_strips_mapping_annotations_and_renames_configure() -> None:
-    raw = '''
+    raw = """
 import numpy as np
 from enigma.strategy.interface import Strategy, StrategyMeta
 
@@ -39,7 +39,7 @@ class FundingRateStrategy(Strategy):
 
     def target_positions(self, data: Mapping[str, np.ndarray]) -> np.ndarray:
         return np.zeros_like(data["funding_rate"])
-'''
+"""
     fixed = _normalize_generated_source(raw)
     assert "def configure(" in fixed
     assert "__configure__" not in fixed
