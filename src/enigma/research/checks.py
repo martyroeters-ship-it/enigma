@@ -42,6 +42,16 @@ def prior_fingerprint(prior: PriorHypothesisOutcome) -> str:
     return f"{prior.mechanism}|{prior.signal}|{cols}|{prior.horizon_bars}"
 
 
+_EMPTY_EVIDENCE = frozenset(
+    {"", "none", "null", "n/a", "na", "nil", "-", "unknown", "not_applicable"}
+)
+
+
+def _is_empty_evidence_sentinel(eid: str) -> bool:
+    """LLMs often emit 'none' instead of an empty contradictory list; treat as no citation."""
+    return eid.strip().lower() in _EMPTY_EVIDENCE
+
+
 def check_proposal(  # noqa: PLR0912 - each gate is an independent explicit failure path
     proposal: HypothesisProposal,
     context: ResearchContext,
@@ -55,11 +65,21 @@ def check_proposal(  # noqa: PLR0912 - each gate is an independent explicit fail
     instruments = frozenset(context.instruments)
 
     for eid in proposal.supporting_evidence_ids:
+        if _is_empty_evidence_sentinel(eid):
+            failures.append(
+                CheckFailure(
+                    check="evidence_exists",
+                    detail="supporting evidence cannot be a none/null sentinel",
+                )
+            )
+            continue
         if eid not in evidence_ids:
             failures.append(
                 CheckFailure(check="evidence_exists", detail=f"unknown supporting evidence {eid}")
             )
     for eid in proposal.contradictory_evidence_ids:
+        if _is_empty_evidence_sentinel(eid):
+            continue
         if eid not in evidence_ids:
             failures.append(
                 CheckFailure(
