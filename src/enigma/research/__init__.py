@@ -1,5 +1,6 @@
 """Research plane: hypotheses, features, experiments, trial ledger."""
 
+from enigma.research.bridge import hypothesis_from_proposal
 from enigma.research.checks import check_proposal, fingerprint
 from enigma.research.context import build_research_context
 from enigma.research.deterministic import DeterministicHypothesisSource
@@ -15,4 +16,5 @@ __all__ = [
     "check_proposal",
     "compute_observations",
     "fingerprint",
+    "hypothesis_from_proposal",
 ]

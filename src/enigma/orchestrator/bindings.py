@@ -45,6 +45,7 @@ class Services:
     gateway_status: ToolFn
     research_cutoff: Callable[[Sequence[str]], datetime]
     llm_structured: ToolFn | None = None
+    quant_hypothesis_generate: ToolFn | None = None
     gateway_benchmark: ToolFn | None = None
 
 
@@ -212,6 +213,16 @@ def build_registry(core: CoreTools, services: Services) -> ToolRegistry:
             pass_actor=True,
         )
     )
+    if services.quant_hypothesis_generate is not None:
+        reg.register(
+            Tool(
+                "quant.hypothesis_generate",
+                "LLM HypothesisGenerator over a sealed ResearchContext",
+                r,
+                services.quant_hypothesis_generate,
+                pass_actor=True,
+            )
+        )
     if services.gateway_benchmark is not None:
         reg.register(
             Tool("gateway.benchmark", "Benchmark available models", c, services.gateway_benchmark)

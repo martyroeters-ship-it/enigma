@@ -19,6 +19,8 @@ from enigma.core.errors import BudgetExceededError, ProviderUnavailableError
 from enigma.core.hashing import sha256_hex, sha256_of
 from enigma.learning.lessons import CycleEvidence, derive_lessons, propose_next
 from enigma.learning.review import review_institution
+from enigma.research.bridge import hypothesis_from_proposal
+from enigma.research.context import build_research_context
 from enigma.research.hypothesis import build_hypothesis, score_mechanisms
 from enigma.research.mechanisms import MECHANISMS
 from enigma.research.microstructure import METHOD as MICRO_METHOD
@@ -26,8 +28,9 @@ from enigma.research.microstructure import analyze_panel, findings
 from enigma.research.trials import trial_plan
 from enigma.schemas.common import AgentRole
 from enigma.schemas.cycle import MarketAnalysis, NextExperimentProposal
-from enigma.schemas.governance import Reflection, ReflectionOutcome
+from enigma.schemas.governance import ExecutionMode, Reflection, ReflectionOutcome
 from enigma.schemas.knowledge import EvidenceItem, FailureCondition, Lesson
+from enigma.schemas.quant import DatasetInfo, GenerationResult, HypothesisProposal
 from enigma.schemas.research import (
     DatasetVersion,
     Experiment,
@@ -161,6 +164,12 @@ class QuantResearchAgent(Agent):
 
     def execute(self, ctx: AgentContext) -> TaskOutcome:
         i = ctx.task.inputs
+        if i.get("hypothesis_mode") == "llm":
+            return self._execute_llm(ctx)
+        return self._execute_deterministic(ctx)
+
+    def _execute_deterministic(self, ctx: AgentContext) -> TaskOutcome:
+        i = ctx.task.inputs
         objective = ctx.view.require(ResearchObjective, i["objective_id"])
         evidence = [e for e in (ctx.view.get(EvidenceItem, x) for x in i["evidence_ids"]) if e]
         prior = ctx.tools.call(
@@ -204,6 +213,7 @@ class QuantResearchAgent(Agent):
                 + f". Consulted {len(lessons)} lessons and {len(failures)} failure records.",
                 input_refs=(objective.id, analysis.id, *chosen.supporting_evidence[:10]),
                 output_refs=(hypothesis.id,),
+                execution_mode=ExecutionMode.DETERMINISTIC,
             )
         ]
         hypothesis = self._critique(ctx, hypothesis, decisions)
@@ -216,9 +226,103 @@ class QuantResearchAgent(Agent):
                 "mechanism_id": chosen.mechanism_id,
                 "trial_budget": hypothesis.trial_budget,
                 "scores": {s.mechanism_id: round(s.total, 4) for s in scores},
+                "execution_mode": ExecutionMode.DETERMINISTIC,
             },
             decisions=decisions,
             what_worked=f"{len(chosen.supporting_evidence)} supporting evidence items",
+        )
+
+    def _execute_llm(self, ctx: AgentContext) -> TaskOutcome:
+        """LLM primary path. Never falls back to mechanism templates on failure."""
+        i = ctx.task.inputs
+        objective = ctx.view.require(ResearchObjective, i["objective_id"])
+        evidence = [e for e in (ctx.view.get(EvidenceItem, x) for x in i["evidence_ids"]) if e]
+        prior = ctx.tools.call(
+            "knowledge.retrieve", query=objective.statement, topics=list(MECHANISMS)
+        )
+        lessons = [x for x in (ctx.view.get(Lesson, lid) for lid in prior["lesson_ids"]) if x]
+        failures = [
+            x for x in (ctx.view.get(FailureCondition, f) for f in prior["failure_ids"]) if x
+        ]
+        dataset = ctx.view.require(DatasetVersion, i["dataset_version_id"])
+        priors = list(ctx.view.list(Hypothesis))
+        context = build_research_context(
+            objective=objective,
+            research_cutoff=dataset.time_end,
+            datasets=(
+                DatasetInfo(
+                    dataset_version_id=dataset.id,
+                    name=dataset.name,
+                    frequency=dataset.frequency,
+                    bar_hours=1.0,
+                    symbols=tuple(inst.symbol for inst in dataset.instruments),
+                    columns=tuple(dataset.columns),
+                    coverage_start=dataset.time_start,
+                    coverage_end=dataset.time_end,
+                    rows=dataset.row_count,
+                ),
+            ),
+            evidence=evidence,
+            lessons=lessons,
+            failures=failures,
+            prior_hypotheses=priors,
+            cost_model_version="cm-binance-usdm-v1",
+        )
+        try:
+            raw = ctx.tools.call(
+                "quant.hypothesis_generate",
+                context=context.model_dump(mode="json"),
+                task_id=ctx.task.id,
+                budget=ctx.budget,
+            )
+        except (ProviderUnavailableError, BudgetExceededError, KeyError) as exc:
+            raise ProviderUnavailableError(
+                f"LLM hypothesis generation unavailable (no silent template fallback): {exc}"
+            ) from exc
+        generation = GenerationResult.model_validate(raw)
+        if not generation.ok:
+            raise RuntimeError(
+                generation.failure_reason or "LLM hypothesis generation produced no survivors"
+            )
+        proposal: HypothesisProposal = generation.proposals[0]
+        ctx.view.put(generation)
+        hypothesis = hypothesis_from_proposal(
+            proposal,
+            objective_id=objective.id,
+            instruments=objective.instruments,
+            generation=generation,
+            dataset_version_ids=(dataset.id,),
+            lesson_ids=tuple(les.id for les in lessons),
+            created_by=self.role,
+            created_at=ctx.clock.now(),
+            cycle_id=i["cycle_id"],
+        )
+        decisions = [
+            DecisionRecord(
+                "hypothesis_selection",
+                proposal.id,
+                "llm_hypothesis_generator",
+                f"LLM generation {generation.id} via {generation.prompt_ref}; "
+                f"consulted {len(lessons)} lessons, {len(evidence)} evidence items.",
+                input_refs=(objective.id, dataset.id, *proposal.supporting_evidence_ids[:10]),
+                output_refs=(hypothesis.id,),
+                execution_mode=ExecutionMode.LLM,
+            )
+        ]
+        ctx.view.put(hypothesis)
+        ctx.tools.call("knowledge.index", doc=hypothesis)
+        return TaskOutcome(
+            outputs={
+                "hypothesis_id": hypothesis.id,
+                "family_id": hypothesis.family_id,
+                "mechanism_id": proposal.domain,
+                "trial_budget": hypothesis.trial_budget,
+                "generation_id": generation.id,
+                "execution_mode": ExecutionMode.LLM,
+                "prompt_ref": generation.prompt_ref,
+            },
+            decisions=decisions,
+            what_worked=f"LLM proposal '{proposal.title}' passed programmatic checks",
         )
 
     def _critique(
