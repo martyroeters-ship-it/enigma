@@ -104,3 +104,12 @@ forbidden_modules = [
     "enigma.store", "enigma.fsm", "enigma.research", "enigma.intelligence",
     "enigma.validation", "enigma.execution",
 ]
+
+[[tool.importlinter.contracts]]
+name = "Model gateway depends only on core, schemas, and store"
+type = "forbidden"
+source_modules = ["enigma.gateway"]
+forbidden_modules = [
+    "enigma.fsm", "enigma.research", "enigma.intelligence",
+    "enigma.validation", "enigma.execution",
+]
