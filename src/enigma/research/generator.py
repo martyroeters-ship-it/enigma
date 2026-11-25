@@ -9,7 +9,7 @@ from enigma.core.ids import new_id
 from enigma.gateway.errors import StructuredOutputError
 from enigma.gateway.prompts import PromptRegistry, PromptTemplate
 from enigma.gateway.protocol import StructuredGenerator, provenance_of
-from enigma.research.checks import acquisition_needed, check_proposal
+from enigma.research.checks import acquisition_needed, check_proposal, scrub_evidence_sentinels
 from enigma.schemas.common import AgentRole
 from enigma.schemas.governance import Budget, ExecutionMode
 from enigma.schemas.quant import (
@@ -85,6 +85,7 @@ class HypothesisGenerator:
                 created_at=now,
             )
 
+        draft = scrub_evidence_sentinels(draft)
         failures = check_proposal(draft, context)
         if failures:
             rejected.append(
@@ -130,6 +131,7 @@ class HypothesisGenerator:
                     created_by=actor,
                     created_at=now,
                 )
+            draft = scrub_evidence_sentinels(draft)
             failures = check_proposal(draft, context)
             if failures:
                 rejected.append(

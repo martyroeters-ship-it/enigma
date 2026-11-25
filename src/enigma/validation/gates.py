@@ -25,6 +25,11 @@ INFORMATIVE_GATES: dict[str, dict[str, Any]] = {
     "G10": {"name": "regime_stress", "vol_window_bars": 21, "min_regime_bars": 30},
     "G11": {"name": "bootstrap", "n_boot": 1000, "mean_block_bars": 10, "alpha": 0.05},
     "G15": {"name": "benchmark_dominance", "benchmarks": ["flat", "buy_and_hold_perp"]},
+    "G17": {
+        "name": "paper_congruence",
+        "max_abs_sharpe_delta": 0.5,
+        "min_paper_bars": 21,
+    },
 }
 
 GATE_FAILURE_KIND: dict[str, FailureKind] = {
@@ -41,6 +46,7 @@ GATE_FAILURE_KIND: dict[str, FailureKind] = {
     "G12": FailureKind.COST_FRAGILITY,
     "G15": FailureKind.BENCHMARK_INFERIOR,
     "G16": FailureKind.IRREPRODUCIBLE,
+    "G17": FailureKind.COST_FRAGILITY,
 }
 
 _COMPARATORS = {
@@ -437,4 +443,39 @@ def g15_benchmark(
         ">",
         conf,
         {"candidate_net_sharpe": candidate_sharpe, "benchmark_net_sharpes": dict(benchmarks)},
+    )
+
+
+def g17_paper_congruence(
+    *,
+    research_net_sharpe: float,
+    paper_net_sharpe: float | None,
+    paper_bars: int,
+    cfg: Mapping[str, Any] | None = None,
+) -> GateResult:
+    """Paper vs research Sharpe within band (VALIDATION_PROTOCOL §7)."""
+    conf = _cfg("G17", cfg)
+    min_bars = int(conf["min_paper_bars"])
+    band = float(conf["max_abs_sharpe_delta"])
+    if paper_net_sharpe is None or paper_bars < min_bars:
+        return failed_gate(
+            "G17",
+            conf["name"],
+            f"need >= {min_bars} paper bars with a Sharpe; got bars={paper_bars}",
+            conf,
+        )
+    delta = abs(paper_net_sharpe - research_net_sharpe)
+    return make_gate(
+        "G17",
+        conf["name"],
+        compare(delta, band, "<="),
+        delta,
+        band,
+        "<=",
+        conf,
+        {
+            "research_net_sharpe": research_net_sharpe,
+            "paper_net_sharpe": paper_net_sharpe,
+            "paper_bars": paper_bars,
+        },
     )
