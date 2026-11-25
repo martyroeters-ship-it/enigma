@@ -7,6 +7,7 @@ delegation is idempotent, and every step is checkpointed before the next begins.
 
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -25,11 +26,13 @@ from enigma.core.hashing import sha256_hex, sha256_of
 from enigma.core.ids import new_id
 from enigma.fsm import RESEARCH_CYCLE, STRATEGY_LIFECYCLE, StateMachineStore
 from enigma.learning.abort import lessons_from_aborted_cycle
+from enigma.learning.postmortem import postmortem_for_abort, postmortem_for_validation
 from enigma.research.mechanisms import MECHANISMS
 from enigma.schemas.common import AgentRole, ClaimLevel, Instrument
 from enigma.schemas.cycle import NextExperimentProposal
 from enigma.schemas.governance import Task, TaskStatus
 from enigma.schemas.knowledge import Lesson
+from enigma.schemas.learning import ForecastRecord
 from enigma.schemas.research import ResearchObjective
 from enigma.schemas.validation import RedactedValidationSummary, ValidationRequest
 from enigma.store import Stores
@@ -186,6 +189,12 @@ class CycleDriver:
             )
             self.stores.documents.put(proposal, recorded_by=CIO.value)
             state["next_proposal_id"] = proposal.id
+        postmortem = postmortem_for_abort(
+            cycle_id, abort_reason=reason, step=step, now=self.clock.now()
+        )
+        if self.stores.documents.get(type(postmortem), postmortem.id) is None:
+            self.stores.documents.put(postmortem, recorded_by=CIO.value)
+        state["postmortem_id"] = postmortem.id
         self._save(cycle_id, state, "aborted")
         self.stores.audit.record(
             CIO.value,
@@ -481,6 +490,7 @@ class CycleDriver:
         if not impl.outputs.get("reproducible", False):
             self.abort(cycle_id, "twin backtests were not reproducible")
             return True
+        self._record_research_forecast(cycle_id, state, impl.outputs)
         self._advance(
             cycle_id,
             "BACKTEST_RECORDED",
@@ -530,6 +540,7 @@ class CycleDriver:
         summary = self.stores.documents.require(RedactedValidationSummary, summary_id)
         state["validation_summary_id"] = summary_id
         state["validation_overall"] = summary.overall.value
+        self._close_forecast_and_postmortem(cycle_id, state, summary)
         self._advance(
             cycle_id,
             "VALIDATION_DECIDED",
@@ -538,6 +549,67 @@ class CycleDriver:
             {"validation_report": summary.report_id},
         )
         return True
+
+    def _record_research_forecast(
+        self, cycle_id: str, state: dict[str, Any], outputs: dict[str, Any]
+    ) -> None:
+        """Probability that validation will PASS, from the research-window Sharpe only."""
+        table = outputs.get("net_sharpe_by_experiment") or {}
+        finite = [
+            float(value)
+            for value in table.values()
+            if isinstance(value, int | float) and math.isfinite(value)
+        ]
+        if not finite:
+            return
+        probability = 1.0 / (1.0 + math.exp(-max(finite)))
+        probability = min(1.0 - 1e-6, max(1e-6, probability))
+        forecast_id = "frc_" + sha256_hex(f"{cycle_id}|research-sharpe")[:26].upper()
+        if self.stores.documents.get(ForecastRecord, forecast_id) is not None:
+            state["forecast_id"] = forecast_id
+            return
+        self.stores.documents.put(
+            ForecastRecord(
+                id=forecast_id,
+                subject_id=cycle_id,
+                claim="validation overall will be PASS",
+                probability=probability,
+                decided_at=self.clock.now(),
+                information_refs=tuple(state.get("experiment_ids") or ()),
+                scorer="logistic(max research net sharpe)",
+                created_by=CIO,
+            ),
+            recorded_by=CIO.value,
+        )
+        state["forecast_id"] = forecast_id
+
+    def _close_forecast_and_postmortem(
+        self, cycle_id: str, state: dict[str, Any], summary: RedactedValidationSummary
+    ) -> None:
+        forecast_id = state.get("forecast_id")
+        if forecast_id:
+            forecast = self.stores.documents.get(ForecastRecord, forecast_id)
+            if forecast is not None and forecast.outcome is None:
+                self.stores.documents.put(
+                    forecast.model_copy(
+                        update={
+                            "outcome": summary.overall.value == "PASS",
+                            "resolved_at": self.clock.now(),
+                        }
+                    ),
+                    recorded_by=CIO.value,
+                )
+        if summary.overall.value == "PASS" or not summary.failed_gate_names:
+            return
+        postmortem = postmortem_for_validation(
+            cycle_id,
+            summary_id=summary.id,
+            failed_gate_names=summary.failed_gate_names,
+            now=self.clock.now(),
+        )
+        if self.stores.documents.get(type(postmortem), postmortem.id) is None:
+            self.stores.documents.put(postmortem, recorded_by=CIO.value)
+        state["postmortem_id"] = postmortem.id
 
     def _from_validation_decided(self, cycle_id: str, state: dict[str, Any]) -> bool:
         if state.get("validation_overall") == "PASS":
