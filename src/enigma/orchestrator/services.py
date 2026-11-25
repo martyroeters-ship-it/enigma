@@ -233,13 +233,24 @@ class OperationalServices:
             + sha256_of([digest, hypothesis_id]).removeprefix("sha256:")[:26].upper(),
         )
 
-    def backtest_run(self, package_id: str, dataset_version_id: str, seed: int) -> dict[str, Any]:
+    def backtest_run(
+        self,
+        package_id: str,
+        dataset_version_id: str,
+        seed: int,
+        budget: BudgetTracker | None = None,
+    ) -> dict[str, Any]:
         package = self.stores.documents.require(StrategyPackage, package_id)
         frame = self.data_load_research(dataset_version_id)
         symbols = sorted(frame.get_column("symbol").unique().to_list())
         datasets = {s: symbol_arrays(frame, s, package.required_columns) for s in symbols}
         jobs = [SandboxJob(job_id=s, dataset=s) for s in symbols]
-        run = self.sandbox.run(package, datasets, jobs).require_ok()
+        if budget is not None:
+            budget.authorize(cpu_seconds=self.sandbox.limits.cpu_seconds)
+        run = self.sandbox.run(package, datasets, jobs)
+        if budget is not None:
+            budget.charge("compute", "strategy_sandbox", cpu_seconds=float(run.cpu_seconds))
+        run.require_ok()
         result = self.engine.run(
             run.positions, frame, package.cost_model, seed, notional_usd=BACKTEST_NOTIONAL_USD
         )

@@ -24,7 +24,7 @@ from enigma.gateway.types import (
     RequestMetadata,
 )
 from enigma.schemas.common import AgentRole
-from enigma.schemas.governance import Budget
+from enigma.schemas.governance import Budget, ModelProvenance
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -35,6 +35,22 @@ class Traced[V: BaseModel]:
 
     value: V
     response: ModelResponse
+
+
+def provenance_of(response: ModelResponse, prompt_ref: str | None = None) -> ModelProvenance:
+    return ModelProvenance(
+        provider=response.provider,
+        model_id=response.model_id,
+        model_version=response.model_version,
+        request_hash=response.request_hash,
+        raw_response_hash=response.raw_response_hash,
+        prompt_ref=prompt_ref,
+        input_tokens=response.usage.input_tokens,
+        output_tokens=response.usage.output_tokens,
+        cost_usd=response.cost_usd,
+        latency_ms=response.latency_ms,
+        cached=response.cached,
+    )
 
 
 class StructuredLLM:

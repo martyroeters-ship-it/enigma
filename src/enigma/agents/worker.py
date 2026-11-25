@@ -185,6 +185,9 @@ class AgentWorker:
                     output_refs=record.output_refs,
                     instructions_version=ctx.contract.instructions_version,
                     created_at=self.clock.now(),
+                    execution_mode=record.execution_mode,
+                    fallback_reason=record.fallback_reason,
+                    model_calls=record.model_calls,
                 ),
                 recorded_by=self.worker_id,
             )
