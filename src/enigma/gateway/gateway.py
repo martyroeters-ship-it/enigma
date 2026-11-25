@@ -310,9 +310,11 @@ class ModelGateway:
         return now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     def _spent(self, actor: AgentRole, task_id: str | None) -> dict[str, float]:
+        """Committed spend plus open reservations (ceilings cover both)."""
+        self.ledger.expire_stale_reservations(now=self.clock.now())
         if task_id is not None:
-            return self.ledger.totals(actor=str(actor), task_id=task_id)
-        return self.ledger.totals(actor=str(actor), since=self._day_start())
+            return self.ledger.exposure(actor=str(actor), task_id=task_id)
+        return self.ledger.exposure(actor=str(actor), since=self._day_start())
 
     def _check_budget(
         self,
@@ -348,7 +350,7 @@ class ModelGateway:
                     f"estimated ${estimate.usd:.6f} exceeds remaining budget ${remaining_usd:.6f}",
                 )
             cap = self.daily_cap_usd()
-            day_spent = self.ledger.totals(since=self._day_start())["usd"]
+            day_spent = self.ledger.exposure(since=self._day_start())["usd"]
             if day_spent + estimate.usd > cap:
                 raise _Refusal(
                     FailureKind.BUDGET,
@@ -358,6 +360,34 @@ class ModelGateway:
         return http_left
 
     # ------------------------------------------------------------------ ledger
+
+    def _cost_record(
+        self,
+        actor: AgentRole,
+        task_id: str | None,
+        provider: str,
+        model: str,
+        *,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        usd: float = 0.0,
+        http_requests: int = 0,
+        cached: bool = False,
+    ) -> CostRecord:
+        return CostRecord(
+            id=new_id("cst"),
+            actor=actor,
+            task_id=task_id,
+            category=LLM_CATEGORY,
+            provider=provider,
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            usd=usd,
+            http_requests=http_requests,
+            cached=cached,
+            created_at=self.clock.now(),
+        )
 
     def _record(
         self,
@@ -371,23 +401,57 @@ class ModelGateway:
         usd: float = 0.0,
         http_requests: int = 0,
         cached: bool = False,
+        reservation_id: str | None = None,
     ) -> None:
-        self.ledger.record(
-            CostRecord(
-                id=new_id("cst"),
-                actor=actor,
+        cost = self._cost_record(
+            actor,
+            task_id,
+            provider,
+            model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            usd=usd,
+            http_requests=http_requests,
+            cached=cached,
+        )
+        if reservation_id is not None:
+            self.ledger.commit_reservation(reservation_id, cost)
+        else:
+            self.ledger.record(cost)
+
+    def _reserve_call(
+        self,
+        estimate: _Estimate,
+        actor: AgentRole,
+        task_id: str | None,
+        budget: Budget,
+        provider: str,
+        model: str,
+        http_left: int,
+    ) -> str:
+        """Atomically reserve worst-case spend before any provider HTTP."""
+        reservation_id = new_id("rsv")
+        try:
+            self.ledger.reserve(
+                reservation_id=reservation_id,
+                actor=str(actor),
                 task_id=task_id,
                 category=LLM_CATEGORY,
                 provider=provider,
                 model=model,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                usd=usd,
-                http_requests=http_requests,
-                cached=cached,
-                created_at=self.clock.now(),
+                usd=estimate.usd,
+                tokens=estimate.input_tokens + estimate.output_tokens,
+                http_requests=min(self.max_retries + 1, max(1, http_left)),
+                max_usd=budget.max_usd,
+                max_tokens=budget.max_tokens,
+                max_http=budget.max_http_requests,
+                daily_cap_usd=self.daily_cap_usd() if estimate.usd > 0 else None,
+                day_start=self._day_start(),
+                now=self.clock.now(),
             )
-        )
+        except BudgetExceededError as exc:
+            raise _Refusal(FailureKind.BUDGET, str(exc)) from exc
+        return reservation_id
 
     # ------------------------------------------------------------------ invocation
 
@@ -439,6 +503,15 @@ class ModelGateway:
                 f"{call.model.context_window}",
             )
         http_left = self._check_budget(estimate, actor, task_id, budget, max_cost_per_call)
+        reservation_id = self._reserve_call(
+            estimate,
+            actor,
+            task_id,
+            budget,
+            call.provider.name,
+            call.model.model_id,
+            http_left,
+        )
         adapter = self._adapter(call.provider)
         started = self._monotonic()
         try:
@@ -450,7 +523,11 @@ class ModelGateway:
                 call.provider.name,
                 call.model.model_id,
                 http_requests=exc.attempts,
+                reservation_id=reservation_id,
             )
+            raise
+        except BaseException:
+            self.ledger.release_reservation(reservation_id, now=self.clock.now())
             raise
         latency_ms = (self._monotonic() - started) * 1000.0
         usd = cost_usd(
@@ -468,6 +545,7 @@ class ModelGateway:
             output_tokens=result.usage.output_tokens,
             usd=usd,
             http_requests=attempts,
+            reservation_id=reservation_id,
         )
         return result, attempts, latency_ms, usd
 

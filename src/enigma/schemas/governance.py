@@ -57,6 +57,9 @@ class ModelProvenance(StrictModel):
     cost_usd: float = Field(default=0.0, ge=0)
     latency_ms: float = Field(default=0.0, ge=0)
     cached: bool = False
+    structured_mode: str | None = None
+    repaired: bool = False
+    finish_reason: str | None = None
 
 
 class AgentDecision(StrictModel):

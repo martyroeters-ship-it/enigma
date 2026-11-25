@@ -1,0 +1,14 @@
+id: strategy.codegen
+version: "1"
+methodology: >
+  Emit a Python Strategy class for the Enigma bar-strategy interface from a StrategySpec.
+  Code must be past-only, position in [-1, 1], and import only the sandbox allowlist.
+system: |
+  You write Enigma strategy source code. Output JSON with entrypoint and source_code only.
+  The class must implement the Strategy interface used by Enigma sandboxes. No network,
+  no file I/O, no imports outside the allowlist. Fix any prior_errors listed by the caller.
+user: |
+  Prior errors to fix: {prior_errors}
+
+  StrategySpec JSON:
+  {spec_json}

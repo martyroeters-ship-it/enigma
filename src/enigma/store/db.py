@@ -124,6 +124,28 @@ MIGRATIONS: tuple[str, ...] = (
         tokenize = 'porter unicode61'
     );
     """,
+    # 2: atomic spend reservations
+    """
+    CREATE TABLE cost_reservations (
+        id TEXT PRIMARY KEY,
+        actor TEXT NOT NULL,
+        task_id TEXT,
+        category TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        model TEXT,
+        usd REAL NOT NULL,
+        tokens INTEGER NOT NULL,
+        http_requests INTEGER NOT NULL,
+        cpu_seconds REAL NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        committed_cost_id TEXT,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX cost_reservations_active ON cost_reservations(status, expires_at);
+    CREATE INDEX cost_reservations_actor ON cost_reservations(actor, status);
+    """,
 )
 
 
