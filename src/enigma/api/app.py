@@ -69,6 +69,10 @@ def create_app(settings: Settings | None = None, stores: Stores | None = None) -
     def messages(request: Request) -> HTMLResponse:
         return page(request, "messages.html", messages=rm.messages())
 
+    @app.get("/models", response_class=HTMLResponse)
+    def models(request: Request) -> HTMLResponse:
+        return page(request, "models.html", m=rm.model_usage())
+
     @app.get("/audit", response_class=HTMLResponse)
     def audit(request: Request) -> HTMLResponse:
         return page(request, "audit.html", entries=rm.audit(), costs=rm.costs())
@@ -111,6 +115,10 @@ def create_app(settings: Settings | None = None, stores: Stores | None = None) -
     @app.get("/api/costs")
     def api_costs() -> dict[str, Any]:
         return rm.costs()
+
+    @app.get("/api/models")
+    def api_models() -> dict[str, Any]:
+        return rm.model_usage()
 
     @app.get("/api/audit")
     def api_audit() -> list[dict[str, Any]]:

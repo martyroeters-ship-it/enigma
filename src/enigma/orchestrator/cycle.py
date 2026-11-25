@@ -23,6 +23,7 @@ from enigma.core.errors import InvalidTransitionError
 from enigma.core.hashing import sha256_hex, sha256_of
 from enigma.core.ids import new_id
 from enigma.fsm import RESEARCH_CYCLE, STRATEGY_LIFECYCLE, StateMachineStore
+from enigma.learning.abort import lessons_from_aborted_cycle
 from enigma.schemas.common import AgentRole, Instrument
 from enigma.schemas.governance import Task, TaskStatus
 from enigma.schemas.research import ResearchObjective
@@ -148,11 +149,28 @@ class CycleDriver:
     def abort(self, cycle_id: str, reason: str) -> None:
         state = self._state(cycle_id)
         state["abort_reason"] = reason
+        step = self.fsm.state(RESEARCH_CYCLE, cycle_id)
         try:
             self.fsm.transition(RESEARCH_CYCLE, cycle_id, "ABORTED", CIO.value, reason[:200])
         except InvalidTransitionError:
             return
+        lessons = lessons_from_aborted_cycle(
+            cycle_id,
+            reason,
+            step=step,
+            hypothesis_id=state.get("hypothesis_id"),
+            now=self.clock.now(),
+        )
+        for les in lessons:
+            self.stores.documents.put(les, recorded_by=CIO.value)
+        state["abort_lesson_ids"] = [les.id for les in lessons]
         self._save(cycle_id, state, "aborted")
+        self.stores.audit.record(
+            CIO.value,
+            "cycle.aborted_lessons",
+            cycle_id,
+            {"lesson_ids": state["abort_lesson_ids"], "step": step, "reason": reason[:200]},
+        )
 
     @staticmethod
     def _failed(*tasks: Task) -> Task | None:

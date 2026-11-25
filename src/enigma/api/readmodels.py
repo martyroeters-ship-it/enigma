@@ -130,9 +130,8 @@ class ReadModels:
             for e in (self.s.documents.get(Experiment, x) for x in state.get("experiment_ids", []))
             if e
         ]
-        lessons = [
-            x for x in (self.s.documents.get(Lesson, i) for i in state.get("lesson_ids", [])) if x
-        ]
+        lesson_ids = list(state.get("lesson_ids") or []) + list(state.get("abort_lesson_ids") or [])
+        lessons = [x for x in (self.s.documents.get(Lesson, i) for i in lesson_ids) if x]
         proposal = self.s.documents.get(NextExperimentProposal, state.get("next_proposal_id", ""))
         return {
             "id": cycle_id,
@@ -295,6 +294,34 @@ class ReadModels:
         return [
             d.model_dump(mode="json") for d in self.s.documents.list(AgentDecision, limit=limit)
         ]
+
+    def model_usage(self, limit: int = 500) -> dict[str, Any]:
+        """Aggregate LLM vs deterministic decisions and recorded model provenance."""
+        decisions = self.s.documents.list(AgentDecision, limit=limit)
+        by_mode: Counter[str] = Counter()
+        calls: list[dict[str, Any]] = []
+        for d in decisions:
+            mode = getattr(d, "execution_mode", None)
+            by_mode[mode.value if mode is not None else "deterministic"] += 1
+            for call in getattr(d, "model_calls", ()) or ():
+                calls.append(
+                    {
+                        "decision_id": d.id,
+                        "agent": d.agent,
+                        "task_id": d.task_id,
+                        "decision_type": d.decision_type,
+                        **call.model_dump(mode="json"),
+                    }
+                )
+        return {
+            "decisions_by_execution_mode": dict(by_mode),
+            "model_calls": calls[:200],
+            "total_model_calls": len(calls),
+            "total_tokens": sum(
+                c.get("input_tokens", 0) + c.get("output_tokens", 0) for c in calls
+            ),
+            "total_cost_usd": round(sum(float(c.get("cost_usd", 0) or 0) for c in calls), 6),
+        }
 
     def messages(self, limit: int = 150) -> list[dict[str, Any]]:
         return [m.model_dump(mode="json") for m in self.bus.recent(limit)]
