@@ -172,4 +172,6 @@ def test_reopen_preserves_state(tmp_path: Path) -> None:
     s1.db.close()
     s2 = Stores.open(path)
     assert s2.documents.require(Lesson, "les_1").statement.startswith("Funding")
-    assert s2.db.schema_version == 1
+    from enigma.store.db import MIGRATIONS
+
+    assert s2.db.schema_version == len(MIGRATIONS)

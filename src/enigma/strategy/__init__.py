@@ -20,6 +20,8 @@ from enigma.strategy.sandbox import (
     SandboxRunner,
     SandboxUnavailableError,
 )
+from enigma.strategy.codegen import StrategyCodeGenerator
+from enigma.strategy.spec import check_consistency, derive_spec
 from enigma.strategy.static_check import (
     ALLOWED_IMPORTS,
     StaticViolation,
@@ -40,12 +42,15 @@ __all__ = [
     "SandboxUnavailableError",
     "StaticViolation",
     "Strategy",
+    "StrategyCodeGenerator",
     "StrategyMeta",
     "StrategyRejectedError",
     "TruncationCheckResult",
     "TruncationMismatch",
     "build_package",
+    "check_consistency",
     "check_source",
+    "derive_spec",
     "evaluate_truncations",
     "package_content_hash",
     "pit_timestamp_violations",

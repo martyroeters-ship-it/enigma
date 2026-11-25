@@ -33,6 +33,13 @@ from enigma.schemas.knowledge import (
     MarketMechanism,
     Source,
 )
+from enigma.schemas.quant import (
+    DatasetAcquisitionRequest,
+    GenerationResult,
+    RegisteredHypothesis,
+    StrategyGenerationRecord,
+    StrategySpec,
+)
 from enigma.schemas.research import (
     DatasetVersion,
     Experiment,
@@ -81,6 +88,11 @@ for _model, _kind, _plane in (
     (MarketMechanism, "mechanism", Plane.RESEARCH),
     (DatasetVersion, "dataset_version", Plane.RESEARCH),
     (Hypothesis, "hypothesis", Plane.RESEARCH),
+    (RegisteredHypothesis, "registered_hypothesis", Plane.RESEARCH),
+    (GenerationResult, "hypothesis_generation", Plane.RESEARCH),
+    (DatasetAcquisitionRequest, "dataset_acquisition_request", Plane.RESEARCH),
+    (StrategySpec, "strategy_spec", Plane.RESEARCH),
+    (StrategyGenerationRecord, "strategy_generation", Plane.RESEARCH),
     (Experiment, "experiment", Plane.RESEARCH),
     (StrategyPackage, "strategy_package", Plane.RESEARCH),
     (FailureCondition, "failure_condition", Plane.CONTROL),
