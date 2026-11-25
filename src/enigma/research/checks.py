@@ -6,6 +6,7 @@ import re
 
 from enigma.schemas.quant import (
     CheckFailure,
+    ColumnUse,
     HypothesisProposal,
     PriorHypothesisOutcome,
     ResearchContext,
@@ -46,10 +47,58 @@ _EMPTY_EVIDENCE = frozenset(
     {"", "none", "null", "n/a", "na", "nil", "-", "unknown", "not_applicable"}
 )
 
+# Local models invent OHLC/return names that are not in the PIT panel. Map synonyms onto the
+# first available real column; never invent columns that are not in the sealed dataset.
+_COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
+    "returns": ("perp_close", "spot_close", "close"),
+    "return": ("perp_close", "spot_close", "close"),
+    "fwd_return": ("perp_close", "spot_close", "close"),
+    "forward_return": ("perp_close", "spot_close", "close"),
+    "log_return": ("perp_close", "spot_close", "close"),
+    "price": ("perp_close", "spot_close", "close"),
+    "close": ("perp_close", "spot_close", "close"),
+    "open": ("perp_open", "open"),
+    "high": ("perp_high", "high"),
+    "low": ("perp_low", "low"),
+    "volume": ("perp_volume", "volume"),
+    "quote_volume": ("perp_quote_volume", "quote_volume"),
+    "funding": ("funding_rate",),
+    "fundingrate": ("funding_rate",),
+    "funding_rate": ("funding_rate",),
+    "basis": ("basis",),
+    "spot": ("spot_close", "spot"),
+}
+
+_ROLE_FALLBACKS: dict[str, tuple[str, ...]] = {
+    "signal": ("funding_rate", "basis", "perp_volume", "perp_close"),
+    "target": ("perp_close", "spot_close", "close"),
+    "control": ("basis", "perp_volume", "funding_rate", "spot_close"),
+}
+
 
 def _is_empty_evidence_sentinel(eid: str) -> bool:
     """LLMs often emit 'none' instead of an empty contradictory list; treat as no citation."""
     return eid.strip().lower() in _EMPTY_EVIDENCE
+
+
+def resolve_column(name: str, available: frozenset[str], role: str) -> str | None:
+    """Map an LLM column name onto a sealed dataset column, or None if nothing fits."""
+    if name in available:
+        return name
+    key = re.sub(r"[^a-z0-9]+", "", name.lower())
+    # Normalise common separators: funding-rate / funding_rate / FundingRate
+    spaced = re.sub(r"[\s\-]+", "_", name.strip().lower())
+    for candidate in _COLUMN_ALIASES.get(spaced, ()) + _COLUMN_ALIASES.get(key, ()):
+        if candidate in available:
+            return candidate
+    for candidate in _ROLE_FALLBACKS.get(role, ()):
+        if candidate in available:
+            return candidate
+    # Last resort: any non-meta numeric panel column.
+    for candidate in sorted(available):
+        if candidate not in {"symbol", "ts", "available_at", "funding_time"}:
+            return candidate
+    return None
 
 
 def scrub_evidence_sentinels(proposal: HypothesisProposal) -> HypothesisProposal:
@@ -73,6 +122,58 @@ def scrub_evidence_sentinels(proposal: HypothesisProposal) -> HypothesisProposal
     )
 
 
+def _normalize_required_data(
+    proposal: HypothesisProposal,
+    columns: dict[str, frozenset[str]],
+    only_dataset: str | None,
+) -> list[ColumnUse]:
+    known_datasets = frozenset(columns)
+    required: list[ColumnUse] = []
+    for use in proposal.required_data:
+        updates: dict[str, object] = {}
+        dataset_id = use.dataset_id
+        if dataset_id not in known_datasets and only_dataset is not None:
+            dataset_id = only_dataset
+            updates["dataset_id"] = dataset_id
+        available = columns.get(dataset_id)
+        if available is not None and use.column not in available:
+            resolved = resolve_column(use.column, available, use.role)
+            if resolved is not None and resolved != use.column:
+                updates["column"] = resolved
+        if use.role in {"signal", "control"} and use.min_lag_bars < 0:
+            updates["min_lag_bars"] = 0
+        required.append(use.model_copy(update=updates) if updates else use)
+
+    if required and not any(u.role == "signal" for u in required):
+        signal_ds = required[0].dataset_id
+        available = columns.get(signal_ds, frozenset())
+        signal_col = resolve_column("funding_rate", available, "signal")
+        if signal_col is not None:
+            required.insert(
+                0,
+                ColumnUse(
+                    dataset_id=signal_ds,
+                    column=signal_col,
+                    role="signal",
+                    min_lag_bars=0,
+                ),
+            )
+    return required
+
+
+def _remap_short_evidence_ids(cited: tuple[str, ...], ordered: list[str]) -> tuple[str, ...]:
+    remapped: list[str] = []
+    for eid in cited:
+        if _is_empty_evidence_sentinel(eid):
+            continue
+        match = re.fullmatch(r"ev[_-]?(\d+)", eid.strip(), flags=re.I)
+        if match:
+            idx = int(match.group(1)) - 1
+            if 0 <= idx < len(ordered):
+                remapped.append(ordered[idx])
+    return tuple(dict.fromkeys(remapped))
+
+
 def normalize_proposal(
     proposal: HypothesisProposal, context: ResearchContext
 ) -> HypothesisProposal:
@@ -80,33 +181,16 @@ def normalize_proposal(
     proposal = scrub_evidence_sentinels(proposal)
     evidence_ids = context.evidence_ids()
     columns = context.columns_by_dataset()
-    known_datasets = frozenset(columns)
-    only_dataset = next(iter(known_datasets)) if len(known_datasets) == 1 else None
-
-    required = []
-    for use in proposal.required_data:
-        updates: dict[str, object] = {}
-        if use.dataset_id not in known_datasets and only_dataset is not None:
-            updates["dataset_id"] = only_dataset
-        if use.role in {"signal", "control"} and use.min_lag_bars < 0:
-            updates["min_lag_bars"] = 0
-        required.append(use.model_copy(update=updates) if updates else use)
+    only_dataset = next(iter(columns)) if len(columns) == 1 else None
+    required = _normalize_required_data(proposal, columns, only_dataset)
 
     supporting = tuple(eid for eid in proposal.supporting_evidence_ids if eid in evidence_ids)
     contradictory = tuple(eid for eid in proposal.contradictory_evidence_ids if eid in evidence_ids)
     # If the model invented short ids, keep order by remapping ev_N → Nth context evidence.
     if not supporting and proposal.supporting_evidence_ids and context.evidence:
-        remapped: list[str] = []
-        ordered = [e.id for e in context.evidence]
-        for eid in proposal.supporting_evidence_ids:
-            if _is_empty_evidence_sentinel(eid):
-                continue
-            match = re.fullmatch(r"ev[_-]?(\d+)", eid.strip(), flags=re.I)
-            if match:
-                idx = int(match.group(1)) - 1
-                if 0 <= idx < len(ordered):
-                    remapped.append(ordered[idx])
-        supporting = tuple(dict.fromkeys(remapped))
+        supporting = _remap_short_evidence_ids(
+            proposal.supporting_evidence_ids, [e.id for e in context.evidence]
+        )
 
     instruments = tuple(i for i in proposal.instruments if i in frozenset(context.instruments))
     if not instruments:
