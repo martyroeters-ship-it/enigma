@@ -100,7 +100,9 @@ def build_research_context(
         objective_id=objective.id,
         objective=objective.statement,
         research_cutoff=research_cutoff,
-        instruments=tuple(str(i) for i in objective.instruments),
+        instruments=tuple(
+            i.symbol if hasattr(i, "symbol") else str(i) for i in objective.instruments
+        ),
         cost_model_version=cost_model_version,
         cost_bps_per_unit_turnover=cost_bps_per_unit_turnover,
         evidence=tuple(evidence_excerpt(e) for e in evidence),

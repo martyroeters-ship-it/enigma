@@ -28,6 +28,7 @@ from enigma.data import DataCatalog
 from enigma.fsm import StateMachineStore
 from enigma.gateway import ModelGateway, ModelRegistry, StructuredLLM
 from enigma.gateway.benchmark import BenchmarkRunner
+from enigma.gateway.prompts import PromptRegistry
 from enigma.intelligence import (
     HttpBudget,
     HttpClient,
@@ -40,9 +41,11 @@ from enigma.intelligence import (
 from enigma.knowledge import KnowledgeBase
 from enigma.orchestrator.bindings import Services
 from enigma.orchestrator.cycle import HoldoutPolicy
+from enigma.research.generator import HypothesisGenerator
 from enigma.schemas.common import AgentRole, Plane
 from enigma.schemas.governance import Budget
 from enigma.schemas.knowledge import EvidenceItem
+from enigma.schemas.quant import ResearchContext
 from enigma.schemas.research import CostModel, DatasetVersion, StrategyPackage
 from enigma.schemas.validation import RedactedValidationSummary, ValidationRequest
 from enigma.store import Stores
@@ -356,6 +359,27 @@ class OperationalServices:
             model_cls, system, user, AgentRole(actor), task_id, budget.budget
         )
 
+    def quant_hypothesis_generate(
+        self,
+        context: dict[str, Any],
+        task_id: str,
+        budget: BudgetTracker,
+        actor: str,
+        model: str | None = "local-qwen",
+    ) -> dict[str, Any]:
+        research_context = ResearchContext.model_validate(context)
+        prompts = PromptRegistry.load(self.settings.registries_dir / "prompts")
+        result = HypothesisGenerator(
+            StructuredLLM(self.gateway), prompts, model=model, max_output_tokens=2200
+        ).generate(
+            research_context,
+            actor=AgentRole(actor),
+            task_id=task_id,
+            budget=budget.budget,
+            now=self.clock.now(),
+        )
+        return result.model_dump(mode="json")
+
     def gateway_benchmark(self) -> dict[str, Any]:
         budget = Budget(max_usd=0.25, max_tokens=100_000, max_wall_seconds=600)
         report = BenchmarkRunner(self.gateway, budget).run()
@@ -371,6 +395,7 @@ class OperationalServices:
             validation_run=self.validation_run,
             gateway_status=self.gateway_status,
             llm_structured=self.llm_structured,
+            quant_hypothesis_generate=self.quant_hypothesis_generate,
             gateway_benchmark=self.gateway_benchmark,
             research_cutoff=self.research_cutoff,
         )
