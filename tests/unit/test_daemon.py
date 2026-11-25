@@ -88,6 +88,27 @@ def test_kill_switch_stops_daemon_work(tmp_path: Path) -> None:
     assert rig.stores.queue.counts().get("pending", 0) == 0
 
 
+def test_daemon_shutdown_records_stop_and_startup_requeues_orphans(tmp_path: Path) -> None:
+    rig = Rig(tmp_path / "c.sqlite3")
+    cycle = rig.submit()
+    daemon = _daemon(rig)
+    assert daemon.startup() == []
+    daemon.heartbeat("running: test", force=True)
+    daemon.shutdown()
+    beat = rig.stores.flags.get(f"heartbeat:{daemon.worker_name}")
+    assert beat == "stopped"
+    assert any(entry.action == "daemon.stopped" for entry in rig.stores.audit.entries())
+    rig.driver.tick(cycle)
+    claimed = rig.stores.queue.claim(
+        f"{socket.gethostname()}:999999",
+        roles=(AgentRole.INTELLIGENCE,),
+        lease=timedelta(hours=1),
+    )
+    assert claimed is not None
+    requeued = daemon.startup()
+    assert claimed.id in requeued
+
+
 def test_local_worker_liveness() -> None:
     assert local_worker_alive(f"{socket.gethostname()}:{os.getpid()}")
     assert not local_worker_alive(f"{socket.gethostname()}:999999")

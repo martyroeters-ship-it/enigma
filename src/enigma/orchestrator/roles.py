@@ -169,6 +169,8 @@ class QuantResearchAgent(Agent):
 
     def execute(self, ctx: AgentContext) -> TaskOutcome:
         i = ctx.task.inputs
+        if i.get("recovery") == "alternate":
+            return self._execute_recovery(ctx)
         if i.get("hypothesis_mode") == "llm":
             return self._execute_llm(ctx)
         return self._execute_deterministic(ctx)
@@ -288,6 +290,8 @@ class QuantResearchAgent(Agent):
         # Persist even on failure so operators can inspect rejected drafts.
         ctx.view.put(generation)
         if not generation.ok:
+            if generation.failure_reason == "no_proposal_survived_checks":
+                return self._checks_rejected(generation)
             raise RuntimeError(
                 generation.failure_reason or "LLM hypothesis generation produced no survivors"
             )
@@ -329,6 +333,114 @@ class QuantResearchAgent(Agent):
             },
             decisions=decisions,
             what_worked=f"LLM proposal '{proposal.title}' passed programmatic checks",
+        )
+
+    def _checks_rejected(self, generation: GenerationResult) -> TaskOutcome:
+        domains: list[str] = []
+        for draft in generation.rejected:
+            raw = draft.draft.get("domain") or draft.draft.get("mechanism_id")
+            if isinstance(raw, str) and raw:
+                domains.append(raw)
+        return TaskOutcome(
+            outputs={
+                "hypothesis_id": None,
+                "failure_reason": "no_proposal_survived_checks",
+                "generation_id": generation.id,
+                "rejected_domains": domains,
+                "execution_mode": ExecutionMode.LLM,
+            },
+            decisions=[
+                DecisionRecord(
+                    "hypothesis_selection",
+                    "none",
+                    "no_proposal_survived_checks",
+                    f"Generation {generation.id} is kept. No proposal survived checks.",
+                    output_refs=(generation.id,),
+                    execution_mode=ExecutionMode.LLM,
+                )
+            ],
+            what_failed="no_proposal_survived_checks",
+        )
+
+    def _execute_recovery(self, ctx: AgentContext) -> TaskOutcome:
+        """One alternate direction after LLM checks reject every draft.
+
+        Recorded as a deterministic fallback, not as model reasoning. The rejected
+        generation stays in the document store.
+        """
+        i = ctx.task.inputs
+        excluded = {str(item) for item in i.get("excluded_mechanisms") or []}
+        objective = ctx.view.require(ResearchObjective, i["objective_id"])
+        evidence = [e for e in (ctx.view.get(EvidenceItem, x) for x in i["evidence_ids"]) if e]
+        prior = ctx.tools.call(
+            "knowledge.retrieve", query=objective.statement, topics=list(MECHANISMS)
+        )
+        lessons = [x for x in (ctx.view.get(Lesson, lid) for lid in prior["lesson_ids"]) if x]
+        failures = [
+            x for x in (ctx.view.get(FailureCondition, f) for f in prior["failure_ids"]) if x
+        ]
+        tested = Counter(h.family_id.removeprefix("fam_") for h in ctx.view.list(Hypothesis))
+        analysis = ctx.view.require(MarketAnalysis, i["analysis_id"])
+        scores = score_mechanisms(evidence, analysis, lessons, failures, dict(tested))
+        ranked = sorted(scores, key=lambda s: (tested.get(s.mechanism_id, 0), s.mechanism_id))
+        chosen = next((s for s in ranked if s.mechanism_id not in excluded), None)
+        if chosen is None:
+            return TaskOutcome(
+                outputs={
+                    "hypothesis_id": None,
+                    "failure_reason": "no_proposal_survived_checks",
+                    "generation_id": i.get("rejected_generation_id"),
+                    "execution_mode": ExecutionMode.DETERMINISTIC_FALLBACK,
+                },
+                what_failed="no registered mechanism left after check rejection",
+            )
+        hypothesis = build_hypothesis(
+            objective,
+            MECHANISMS[chosen.mechanism_id],
+            chosen,
+            objective.instruments,
+            cycle_id=i["cycle_id"],
+            now=ctx.clock.now(),
+            dataset_version_ids=(i["dataset_version_id"],),
+            lesson_ids=tuple(les.id for les in lessons),
+        )
+        hypothesis = hypothesis.model_copy(
+            update={
+                "uncertainty_notes": (
+                    hypothesis.uncertainty_notes
+                    + " | Deterministic fallback after no_proposal_survived_checks."
+                    " The rejected LLM generation is retained."
+                )
+            }
+        )
+        ctx.view.put(hypothesis)
+        ctx.tools.call("knowledge.index", doc=hypothesis)
+        generation_id = str(i.get("rejected_generation_id") or "")
+        return TaskOutcome(
+            outputs={
+                "hypothesis_id": hypothesis.id,
+                "family_id": hypothesis.family_id,
+                "mechanism_id": chosen.mechanism_id,
+                "trial_budget": hypothesis.trial_budget,
+                "generation_id": generation_id or None,
+                "execution_mode": ExecutionMode.DETERMINISTIC_FALLBACK,
+                "recovery": "alternate",
+            },
+            decisions=[
+                DecisionRecord(
+                    "hypothesis_selection",
+                    chosen.mechanism_id,
+                    "no_proposal_survived_checks",
+                    "LLM drafts failed programmatic checks. One library mechanism was "
+                    f"registered instead: {chosen.mechanism_id}.",
+                    input_refs=tuple(ref for ref in (objective.id, generation_id) if ref),
+                    output_refs=(hypothesis.id,),
+                    execution_mode=ExecutionMode.DETERMINISTIC_FALLBACK,
+                    fallback_reason="no_proposal_survived_checks",
+                )
+            ],
+            what_worked=f"fallback mechanism {chosen.mechanism_id}",
+            what_failed="no_proposal_survived_checks",
         )
 
     def _critique(
