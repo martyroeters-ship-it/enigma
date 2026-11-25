@@ -54,6 +54,29 @@ def _normalize_generated_source(source: str) -> str:
             node.keywords = new_keywords
             return node
 
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
+            self.generic_visit(node)
+            return self._strip_fn(node)
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AST:
+            self.generic_visit(node)
+            return self._strip_fn(node)
+
+        @staticmethod
+        def _strip_fn[T: ast.FunctionDef | ast.AsyncFunctionDef](node: T) -> T:
+            # Local models copy prompt type hints (Mapping[...]) without importing them,
+            # and sometimes emit __configure__ instead of configure.
+            if node.name == "__configure__":
+                node.name = "configure"
+            node.returns = None
+            for arg in (*node.args.args, *node.args.kwonlyargs):
+                arg.annotation = None
+            if node.args.vararg is not None:
+                node.args.vararg.annotation = None
+            if node.args.kwarg is not None:
+                node.args.kwarg.annotation = None
+            return node
+
     try:
         tree = ast.parse(source)
     except SyntaxError:
@@ -62,7 +85,13 @@ def _normalize_generated_source(source: str) -> str:
     try:
         return ast.unparse(tree)
     except Exception:
-        return re.sub(r"StrategyMeta\(([^)]*?)\bid\s*=", r"StrategyMeta(\1hypothesis_id=", source)
+        patched = re.sub(
+            r"StrategyMeta\(([^)]*?)\bid\s*=",
+            r"StrategyMeta(\1hypothesis_id=",
+            source,
+        )
+        patched = patched.replace("def __configure__", "def configure")
+        return patched
 
 
 def _sandbox_smoke(
