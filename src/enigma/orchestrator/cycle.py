@@ -341,6 +341,10 @@ class CycleDriver:
 
     def _from_strategy_executed(self, cycle_id: str, state: dict[str, Any]) -> bool:
         impl = self._get(state["tasks"]["strategy"])
+        if not impl.outputs.get("candidate_package_id"):
+            errors = impl.outputs.get("trial_errors") or ["unknown"]
+            self.abort(cycle_id, f"no strategy trial ran successfully: {errors[0]}"[:500])
+            return True
         if not impl.outputs.get("reproducible", False):
             self.abort(cycle_id, "twin backtests were not reproducible")
             return True

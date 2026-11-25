@@ -41,6 +41,10 @@ from enigma.schemas.validation import RedactedValidationSummary
 REPRODUCIBILITY_EPS = 1e-9
 
 
+def _finite(value: float | None) -> float:
+    return value if value is not None and math.isfinite(value) else -math.inf
+
+
 def _hid(prefix: str, *parts: object) -> str:
     return f"{prefix}_" + sha256_hex("|".join(str(p) for p in parts))[:26].upper()
 
@@ -258,7 +262,6 @@ class StrategyEngineeringAgent(Agent):
         plan = trial_plan(hyp)
         experiments: list[Experiment] = []
         packages: list[str] = []
-        all_reproducible = True
         for index, params in enumerate(plan, start=1):
             exp_id = _hid("exp", hyp.id, index)
             existing = ctx.view.get(Experiment, exp_id)
@@ -353,9 +356,9 @@ class StrategyEngineeringAgent(Agent):
             reproducible = (
                 delta <= REPRODUCIBILITY_EPS and first["result_hash"] == twin["result_hash"]
             )
-            all_reproducible &= reproducible
             metrics = {k: float(v) for k, v in first["metrics"].items()}
             metrics["twin_max_abs_delta"] = float(delta)
+            metrics["twin_reproducible"] = 1.0 if reproducible else 0.0
             exp = exp.model_copy(
                 update={
                     "status": ExperimentStatus.SUCCEEDED,
@@ -370,7 +373,7 @@ class StrategyEngineeringAgent(Agent):
         succeeded = [e for e in experiments if e.status is ExperimentStatus.SUCCEEDED]
         candidate = max(
             succeeded,
-            key=lambda e: (e.metrics.get("net_sharpe", -math.inf), -e.trial_index),
+            key=lambda e: (_finite(e.metrics.get("net_sharpe")), -e.trial_index),
             default=None,
         )
         for exp in succeeded:
@@ -387,6 +390,9 @@ class StrategyEngineeringAgent(Agent):
                 artifacts={"experiment_result": exp.result_hash or ""},
             )
         table = {e.id: round(e.metrics.get("net_sharpe", float("nan")), 4) for e in succeeded}
+        reproducible = bool(succeeded) and all(
+            e.metrics.get("twin_reproducible") == 1.0 for e in succeeded
+        )
         return TaskOutcome(
             outputs={
                 "experiment_ids": [e.id for e in experiments],
@@ -394,7 +400,8 @@ class StrategyEngineeringAgent(Agent):
                 "candidate_package_id": candidate.strategy_package_id if candidate else None,
                 "candidate_experiment_id": candidate.id if candidate else None,
                 "result_hashes": [e.result_hash for e in succeeded],
-                "reproducible": bool(succeeded) and all_reproducible,
+                "reproducible": reproducible,
+                "trial_errors": [e.error for e in experiments if e.error][:3],
                 "net_sharpe_by_experiment": table,
             },
             decisions=[
@@ -410,8 +417,13 @@ class StrategyEngineeringAgent(Agent):
                 )
             ],
             metrics={"trials": float(len(experiments)), "succeeded": float(len(succeeded))},
-            what_worked="all twin backtests reproducible" if all_reproducible else "",
-            what_failed="" if all_reproducible else "non-reproducible backtest detected",
+            what_worked="all twin backtests reproducible" if reproducible else "",
+            what_failed=(
+                ""
+                if reproducible
+                else "; ".join(e.error or "" for e in experiments if e.error)[:500]
+                or "non-reproducible backtest detected"
+            ),
         )
 
 

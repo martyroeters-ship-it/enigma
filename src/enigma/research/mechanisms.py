@@ -92,11 +92,13 @@ FUNDING_CROWDING_REVERSAL = Mechanism(
 import math
 
 import numpy as np
+
+from enigma.strategy.interface import Strategy, StrategyMeta
 """
     + _ZSCORE_HELPER
     + """
 
-class FundingCrowdingReversal:
+class FundingCrowdingReversal(Strategy):
     def configure(self, params):
         self.lookback = int(params["lookback"])
         self.z_entry = float(params["z_entry"])
@@ -105,7 +107,7 @@ class FundingCrowdingReversal:
         return ("funding_rate",)
 
     def metadata(self):
-        return {"mechanism": "funding_crowding_reversal"}
+        return StrategyMeta(name="funding_crowding_reversal", version="1")
 
     def target_positions(self, data):
         f = np.nan_to_num(np.asarray(data["funding_rate"], dtype=float), nan=0.0)
@@ -151,8 +153,10 @@ FUNDING_CARRY = Mechanism(
     source_template="""
 import numpy as np
 
+from enigma.strategy.interface import Strategy, StrategyMeta
 
-class FundingCarry:
+
+class FundingCarry(Strategy):
     def configure(self, params):
         self.lookback = int(params["lookback"])
         self.threshold = float(params["threshold_bps"]) / 10000.0
@@ -161,7 +165,7 @@ class FundingCarry:
         return ("funding_rate",)
 
     def metadata(self):
-        return {"mechanism": "funding_carry"}
+        return StrategyMeta(name="funding_carry", version="1")
 
     def target_positions(self, data):
         f = np.nan_to_num(np.asarray(data["funding_rate"], dtype=float), nan=0.0)
@@ -211,11 +215,13 @@ BASIS_REVERSION = Mechanism(
 import math
 
 import numpy as np
+
+from enigma.strategy.interface import Strategy, StrategyMeta
 """
     + _ZSCORE_HELPER
     + """
 
-class BasisReversion:
+class BasisReversion(Strategy):
     def configure(self, params):
         self.lookback = int(params["lookback"])
         self.z_entry = float(params["z_entry"])
@@ -224,7 +230,7 @@ class BasisReversion:
         return ("basis",)
 
     def metadata(self):
-        return {"mechanism": "basis_reversion"}
+        return StrategyMeta(name="basis_reversion", version="1")
 
     def target_positions(self, data):
         b = np.nan_to_num(np.asarray(data["basis"], dtype=float), nan=0.0)
@@ -261,8 +267,10 @@ FUNDING_MOMENTUM = Mechanism(
     source_template="""
 import numpy as np
 
+from enigma.strategy.interface import Strategy, StrategyMeta
 
-class FundingMomentum:
+
+class FundingMomentum(Strategy):
     def configure(self, params):
         self.lookback = int(params["lookback"])
 
@@ -270,7 +278,7 @@ class FundingMomentum:
         return ("funding_rate", "perp_close")
 
     def metadata(self):
-        return {"mechanism": "funding_momentum"}
+        return StrategyMeta(name="funding_momentum", version="1")
 
     def target_positions(self, data):
         f = np.nan_to_num(np.asarray(data["funding_rate"], dtype=float), nan=0.0)
