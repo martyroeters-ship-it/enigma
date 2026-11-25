@@ -36,6 +36,38 @@ def _default_params(spec: StrategySpec) -> dict[str, float | int | str]:
     return params
 
 
+def _uses_numpy_name(tree: ast.AST) -> bool:
+    """True when source references bare `np` (typical after `import numpy as np`)."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id == "np":
+            return True
+    return False
+
+
+def _imports_numpy(tree: ast.AST) -> bool:
+    for node in tree.body if isinstance(tree, ast.Module) else ():
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "numpy" or (alias.asname or alias.name) == "np":
+                    return True
+        elif isinstance(node, ast.ImportFrom) and node.module == "numpy":
+            return True
+    return False
+
+
+def _ensure_numpy_import(tree: ast.Module) -> ast.Module:
+    """Local models often call np.* without importing numpy — inject the allowlisted import."""
+    if not _uses_numpy_name(tree) or _imports_numpy(tree):
+        return tree
+    import_np = ast.Import(names=[ast.alias(name="numpy", asname="np")])
+    # Keep from __future__ first if present; otherwise prepend.
+    insert_at = 0
+    if tree.body and isinstance(tree.body[0], ast.ImportFrom) and tree.body[0].module == "__future__":
+        insert_at = 1
+    tree.body.insert(insert_at, import_np)
+    return tree
+
+
 def _normalize_generated_source(source: str) -> str:
     """Mechanical fixes for common LLM slips (not a template strategy body)."""
     # Models often invent self.inputs; the interface passes columns via the data arg.
@@ -74,7 +106,11 @@ def _normalize_generated_source(source: str) -> str:
         tree = ast.parse(source)
     except SyntaxError:
         return source
+    assert isinstance(tree, ast.Module)
     tree = _Rewriter().visit(tree)
+    assert isinstance(tree, ast.Module)
+    tree = _ensure_numpy_import(tree)
+    ast.fix_missing_locations(tree)
     try:
         return ast.unparse(tree)
     except Exception:

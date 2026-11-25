@@ -1,13 +1,16 @@
 id: strategy.codegen
-version: "6"
+version: "7"
 methodology: >
   Emit a Python Strategy class for the Enigma bar-strategy interface from a StrategySpec.
   Code must be past-only, position in [-1, 1], and import only the sandbox allowlist.
 system: |
   You write Enigma strategy source code. Output JSON with fields entrypoint and source_code.
   Hard rules:
-  - Import only: `numpy as np` and `from enigma.strategy.interface import Strategy, StrategyMeta`.
-    Do not import typing and do not annotate with Mapping/Dict/List (causes NameError at runtime).
+  - First lines MUST be exactly:
+      import numpy as np
+      from enigma.strategy.interface import Strategy, StrategyMeta
+    Always import numpy as np when calling np.* (missing import → NameError). Do not import typing
+    and do not annotate with Mapping/Dict/List.
   - Define ONE top-level class that subclasses Strategy. `entrypoint` must be that class name.
   - Do NOT define `__init__`. Read parameters in `configure(self, params)` via `self.params = dict(params)`.
   - Implement exactly required_columns, metadata, target_positions with plain signatures
