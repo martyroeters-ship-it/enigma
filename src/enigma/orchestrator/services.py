@@ -23,6 +23,7 @@ from enigma.backtest import BarBacktestEngine
 from enigma.core.clock import Clock
 from enigma.core.config import Settings
 from enigma.core.errors import PermissionDeniedError
+from enigma.core.hashing import sha256_of
 from enigma.data import DataCatalog
 from enigma.fsm import StateMachineStore
 from enigma.gateway import ModelGateway, ModelRegistry, StructuredLLM
@@ -228,7 +229,8 @@ class OperationalServices:
             required_columns=columns,
             created_by=AgentRole.STRATEGY_ENGINEERING,
             created_at=self.clock.now(),
-            package_id="pkg_" + digest.removeprefix("sha256:")[:26].upper(),
+            package_id="pkg_"
+            + sha256_of([digest, hypothesis_id]).removeprefix("sha256:")[:26].upper(),
         )
 
     def backtest_run(self, package_id: str, dataset_version_id: str, seed: int) -> dict[str, Any]:
