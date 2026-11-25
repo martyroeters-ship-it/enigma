@@ -89,3 +89,34 @@ def is_overconfident(
     probabilities: list[float], outcomes: list[bool], *, min_gap: float = 0.05
 ) -> bool:
     return mean_overconfidence(probabilities, outcomes) > min_gap
+
+
+def calibration_panel(probabilities: list[float], outcomes: list[bool]) -> dict[str, object]:
+    """Scores and equal-width bins for resolved forecasts. Empty input is an empty panel."""
+    if not probabilities:
+        return {
+            "n": 0,
+            "brier": None,
+            "log_loss": None,
+            "ece": None,
+            "overconfident": None,
+            "bins": [],
+        }
+    bins = [
+        {
+            "lower": round(bin_.lower, 4),
+            "upper": round(bin_.upper, 4),
+            "count": bin_.count,
+            "mean_probability": round(bin_.mean_probability, 4),
+            "outcome_rate": round(bin_.outcome_rate, 4),
+        }
+        for bin_ in reliability_bins(probabilities, outcomes)
+    ]
+    return {
+        "n": len(probabilities),
+        "brier": round(brier_score(probabilities, outcomes), 6),
+        "log_loss": round(log_loss(probabilities, outcomes), 6),
+        "ece": round(expected_calibration_error(probabilities, outcomes), 6),
+        "overconfident": is_overconfident(probabilities, outcomes),
+        "bins": bins,
+    }

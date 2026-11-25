@@ -14,6 +14,7 @@ from enigma.learning.postmortem import (
     postmortem_for_validation,
 )
 from enigma.schemas.common import AgentRole, ClaimLevel
+from enigma.schemas.governance import ImprovementProposal, ProposalStatus, ProposalTarget
 from enigma.schemas.learning import ErrorClass, Postmortem
 
 NOW = datetime(2026, 11, 25, tzinfo=UTC)
@@ -71,6 +72,28 @@ def test_reproducibility_and_package_collision_are_method_errors() -> None:
         now=NOW,
     )
     assert "CPU" in record.counterfactual or "resource usage" in record.counterfactual
+
+
+def test_adoption_requires_a_postmortem_id() -> None:
+    common = dict(
+        id="imp_cite",
+        target=ProposalTarget.WORKFLOW,
+        target_ref="cycle",
+        change_summary="record the failure class",
+        rationale="method errors were unlabeled",
+        success_metric="postmortems_present",
+        proposed_by=AgentRole.META_LEARNING,
+        created_at=NOW,
+    )
+    with pytest.raises(ValidationError, match="postmortem"):
+        ImprovementProposal(**common, status=ProposalStatus.APPROVED)
+    cited = ImprovementProposal(
+        **common, status=ProposalStatus.APPROVED, postmortem_ids=("pm_live",)
+    )
+    assert cited.postmortem_ids == ("pm_live",)
+    proposed = ImprovementProposal(**common)
+    assert proposed.status is ProposalStatus.PROPOSED
+    assert proposed.postmortem_ids == ()
 
 
 def test_postmortem_cannot_claim_independent_validation() -> None:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from enigma.schemas.common import Actor, AgentRole, NonEmptyStr, StrictModel, UtcDatetime
 
@@ -144,10 +144,18 @@ class ImprovementProposal(StrictModel):
     success_metric: NonEmptyStr
     baseline_metric_value: float | None = None
     evidence_ids: tuple[str, ...] = ()
+    postmortem_ids: tuple[str, ...] = ()
     proposed_by: Actor
     status: ProposalStatus = ProposalStatus.PROPOSED
     requires_human_approval: bool = False
     created_at: UtcDatetime
+
+    @model_validator(mode="after")
+    def _adoption_cites_a_postmortem(self) -> ImprovementProposal:
+        adopted = self.status in {ProposalStatus.APPROVED, ProposalStatus.ROLLED_OUT}
+        if adopted and not self.postmortem_ids:
+            raise ValueError("adoption requires a postmortem id")
+        return self
 
 
 class Budget(StrictModel):

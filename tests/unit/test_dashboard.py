@@ -15,6 +15,7 @@ from enigma.core.clock import FrozenClock
 from enigma.core.config import Settings
 from enigma.schemas.common import AgentRole
 from enigma.schemas.governance import AgentDecision, ExecutionMode, ModelProvenance
+from enigma.schemas.learning import ForecastRecord
 
 
 @pytest.fixture
@@ -145,3 +146,30 @@ def test_model_usage_distinguishes_execution_modes(stores) -> None:  # type: ign
     client = TestClient(create_app(Settings.from_env(), stores))
     assert client.get("/models").status_code == 200
     assert client.get("/api/models").json()["total_model_calls"] == 1
+
+
+def test_learning_page_plots_resolved_forecasts(stores) -> None:  # type: ignore[no-untyped-def]
+    now = datetime(2026, 11, 25, tzinfo=UTC)
+    for index in range(4):
+        stores.documents.put(
+            ForecastRecord(
+                id=f"frc_bias_{index}",
+                subject_id="quant_research",
+                claim="fixture probability",
+                probability=0.9,
+                decided_at=now,
+                outcome=False,
+                resolved_at=now,
+                scorer="brier",
+                created_by=AgentRole.QUANT_RESEARCH,
+            ),
+            recorded_by="test",
+        )
+    client = TestClient(create_app(Settings.from_env(), stores))
+    page = client.get("/learning").text
+    assert "Overconfident: True" in page
+    assert "0.81" in page
+    body = client.get("/api/learning").json()["calibration"]
+    assert body["n"] == 4
+    assert body["overconfident"] is True
+    assert body["bins"][0]["count"] == 4

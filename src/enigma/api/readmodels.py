@@ -20,10 +20,12 @@ from enigma.fsm import (
     STRATEGY_LIFECYCLE,
     StateMachineStore,
 )
+from enigma.learning.calibration import calibration_panel
 from enigma.schemas.cycle import MarketAnalysis, NextExperimentProposal, RiskReview
 from enigma.schemas.execution import DegradationAlert, HumanRiskAcknowledge, PaperSession
 from enigma.schemas.governance import AgentDecision, ImprovementProposal, Reflection
 from enigma.schemas.knowledge import EvidenceItem, FailureCondition, KnowledgeEdge, Lesson, Source
+from enigma.schemas.learning import ForecastRecord
 from enigma.schemas.research import (
     DatasetVersion,
     Experiment,
@@ -290,7 +292,14 @@ class ReadModels:
         }
 
     def learning(self) -> dict[str, Any]:
+        forecasts = self.s.documents.list(ForecastRecord, limit=500)
+        resolved = [f for f in forecasts if f.outcome is not None]
+        panel = calibration_panel(
+            [f.probability for f in resolved],
+            [bool(f.outcome) for f in resolved],
+        )
         return {
+            "calibration": panel,
             "lessons": [
                 x.model_dump(mode="json") for x in self.s.documents.list(Lesson, limit=200)
             ],
