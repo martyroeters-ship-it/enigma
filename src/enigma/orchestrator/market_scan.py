@@ -64,6 +64,8 @@ def run_market_scan(stores: Stores, now: datetime, *, interval_hours: float) -> 
             {"available_at": obs.available_at, obs.field: obs.value}
         )
     _rows_from_datasets(stores, by_key, now)
+    if not by_key:
+        return False
     ranked: list[Anomaly] = []
     for (symbol, field), rows in sorted(by_key.items()):
         ranked.extend(scan_rows(rows, symbol=symbol, field=field, cutoff=now))

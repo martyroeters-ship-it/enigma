@@ -8,8 +8,17 @@ from cycle_rig import Rig
 from enigma.core.config import Settings
 from enigma.orchestrator.daemon import Daemon, Schedule
 from enigma.orchestrator.institution import Institution
+from enigma.orchestrator.market_scan import run_market_scan
 from enigma.schemas.market import MarketObservation, MarketScanReport
 from enigma.schemas.research import ResearchObjective
+
+
+def test_empty_scan_does_not_consume_the_window(tmp_path: Path) -> None:
+    rig = Rig(tmp_path / "empty.sqlite3")
+    now = datetime.now(UTC)
+    assert run_market_scan(rig.stores, now, interval_hours=1) is False
+    names = [row["name"] for row in rig.stores.db.query("SELECT name FROM flags")]
+    assert not any(name.startswith("market-scan:") for name in names)
 
 
 def test_scan_opens_one_objective_per_window(tmp_path: Path) -> None:

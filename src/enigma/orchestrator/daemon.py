@@ -310,28 +310,28 @@ class Daemon:
             self.inst.clock.now(),
             interval_hours=self.schedule.market_scan_interval_hours,
         )
-        if created:
-            self._open_scan_objective()
-        return created
+        opened = self._open_scan_objective()
+        return created or opened
 
-    def _open_scan_objective(self) -> None:
+    def _open_scan_objective(self) -> bool:
         if len(self.inst.driver.active_cycles()) >= self.schedule.max_concurrent_cycles:
-            return
+            return False
         now = self.inst.clock.now()
         since = (now - timedelta(days=1)).isoformat()
         if self.inst.fsm.created_since(RESEARCH_CYCLE, since) >= self.schedule.max_cycles_per_day:
-            return
+            return False
         reports = self.inst.stores.documents.list(MarketScanReport, limit=1)
         if not reports or not reports[0].objective_id:
-            return
+            return False
         objective_id = reports[0].objective_id
         for row in self.inst.stores.checkpoints.list("research_cycle"):
             if row["state"].get("objective_id") == objective_id:
-                return
+                return False
         try:
             self.inst.driver.open_objective(objective_id)
         except (KeyError, ValueError):
-            return
+            return False
+        return True
 
 
 def status_snapshot(inst: Institution) -> dict[str, Any]:
