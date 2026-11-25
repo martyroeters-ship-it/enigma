@@ -102,6 +102,42 @@ def test_normalize_rewrites_self_inputs_and_strategy_meta_id() -> None:
     assert not any(part.strip().startswith("id=") for part in call.split(","))
 
 
+def test_normalize_wraps_target_positions_return_for_nan_safety() -> None:
+    src = (
+        "import numpy as np\n"
+        "from enigma.strategy.interface import Strategy, StrategyMeta\n\n"
+        "class S(Strategy):\n"
+        "    def configure(self, params):\n"
+        "        self.params = dict(params)\n"
+        "    def required_columns(self):\n"
+        "        return ('funding_rate',)\n"
+        "    def metadata(self):\n"
+        "        return StrategyMeta(name='S', version='1', hypothesis_id='hyp_x', "
+        "cost_model_version='cm-test-1')\n"
+        "    def target_positions(self, data):\n"
+        "        x = data['funding_rate']\n"
+        "        return np.sign(x)\n"
+    )
+    out = _normalize_generated_source(src)
+    assert "nan_to_num" in out
+    assert "np.clip" in out
+    assert check_source(out, "S") == ()
+    spec = _spec()
+    package = build_package(
+        out,
+        "S",
+        _default_params(spec),
+        cost_model(),
+        spec.hypothesis_id,
+        name=spec.name,
+        required_columns=spec.required_columns,
+        created_by=AgentRole.STRATEGY_ENGINEERING,
+        created_at=NOW,
+        label_horizon_bars=spec.label_horizon_bars,
+    )
+    assert _sandbox_smoke(package, spec.required_columns, _default_params(spec)) == ()
+
+
 def test_normalize_injects_numpy_import_when_np_used() -> None:
     src = (
         "from enigma.strategy.interface import Strategy, StrategyMeta\n\n"

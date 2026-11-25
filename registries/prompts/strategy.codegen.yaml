@@ -1,5 +1,5 @@
 id: strategy.codegen
-version: "7"
+version: "8"
 methodology: >
   Emit a Python Strategy class for the Enigma bar-strategy interface from a StrategySpec.
   Code must be past-only, position in [-1, 1], and import only the sandbox allowlist.
@@ -22,6 +22,7 @@ system: |
   - Only read self.params keys listed in allowed_params. Prefer self.params.get("NAME", default).
     Top-level StrategySpec fields are NOT automatically in self.params unless listed.
   - target_positions: past-only, same length as inputs, values in [-1, 1], zeros during warm-up.
+    Funding panels may contain NaN — return finite positions only (e.g. np.nan_to_num then clip).
   - No network, files, time, or unseeded randomness.
   Fix any prior_errors listed by the caller; change the code accordingly.
 user: |

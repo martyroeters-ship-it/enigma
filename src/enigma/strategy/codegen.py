@@ -84,6 +84,28 @@ def _normalize_generated_source(source: str) -> str:
                 node.args.vararg.annotation = None
             if node.args.kwarg is not None:
                 node.args.kwarg.annotation = None
+            # Holdout panels can contain NaN funding; wrap returns so positions stay finite.
+            if node.name == "target_positions":
+                for stmt in node.body:
+                    if isinstance(stmt, ast.Return) and stmt.value is not None:
+                        stmt.value = ast.Call(
+                            func=ast.Attribute(value=ast.Name(id="np", ctx=ast.Load()), attr="clip"),
+                            args=[
+                                ast.Call(
+                                    func=ast.Attribute(
+                                        value=ast.Name(id="np", ctx=ast.Load()),
+                                        attr="nan_to_num",
+                                    ),
+                                    args=[stmt.value],
+                                    keywords=[
+                                        ast.keyword(arg="nan", value=ast.Constant(value=0.0))
+                                    ],
+                                ),
+                                ast.UnaryOp(op=ast.USub(), operand=ast.Constant(value=1.0)),
+                                ast.Constant(value=1.0),
+                            ],
+                            keywords=[],
+                        )
             return node
 
         def visit_Call(self, node: ast.Call) -> ast.AST:
@@ -128,6 +150,13 @@ def _sandbox_smoke(
         col: (base.copy() if "fund" in col or "rate" in col else 100 + np.cumsum(base * 0.01))
         for col in required_columns
     }
+    # Seed a few NaNs like real Binance funding panels so missing nan_to_num fails smoke.
+    for col, arr in list(arrays.items()):
+        if "fund" in col or "rate" in col:
+            dirty = np.asarray(arr, dtype=float).copy()
+            dirty[0] = np.nan
+            dirty[n // 2] = np.nan
+            arrays[col] = dirty
     arrays["ts"] = np.arange(n, dtype=np.int64) * 3_600_000_000_000
     data = {
         "s0": {k: np.asarray(v, dtype=np.int64 if k == "ts" else float) for k, v in arrays.items()}
