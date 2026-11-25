@@ -64,9 +64,8 @@ class Institution:
         risk = RiskService(stores, RiskLimits.load(reg_dir / "risk" / "limits.yaml"), clock)
         services = services_factory(settings, stores, policy, clock)
         tools = build_registry(CoreTools(stores, fsm, risk, clock), services)
-        agents: dict[AgentRole, Agent] = {
-            a.role: a() for a in (*ALL_ROLE_AGENTS, TechnologyInnovationAgent)
-        }
+        agent_types: tuple[type[Agent], ...] = (*ALL_ROLE_AGENTS, TechnologyInnovationAgent)
+        agents: dict[AgentRole, Agent] = {a.role: a() for a in agent_types}
         worker = AgentWorker(stores, bus, contracts, tools, agents, clock=clock, lease=lease)
         driver = CycleDriver(stores, bus, fsm, contracts, policy, services.research_cutoff, clock)
         return cls(settings, stores, bus, fsm, contracts, policy, driver, worker, services, clock)

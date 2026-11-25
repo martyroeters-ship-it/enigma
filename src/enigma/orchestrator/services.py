@@ -27,10 +27,21 @@ from enigma.data import DataCatalog
 from enigma.fsm import StateMachineStore
 from enigma.gateway import ModelGateway, ModelRegistry, StructuredLLM
 from enigma.gateway.benchmark import BenchmarkRunner
+from enigma.intelligence import (
+    HttpBudget,
+    HttpClient,
+    RawStore,
+    ResearchEngine,
+    ResearchQuery,
+    default_providers,
+    persist_result,
+)
+from enigma.knowledge import KnowledgeBase
 from enigma.orchestrator.bindings import Services
 from enigma.orchestrator.cycle import HoldoutPolicy
 from enigma.schemas.common import AgentRole, Plane
 from enigma.schemas.governance import Budget
+from enigma.schemas.knowledge import EvidenceItem
 from enigma.schemas.research import CostModel, DatasetVersion, StrategyPackage
 from enigma.schemas.validation import RedactedValidationSummary, ValidationRequest
 from enigma.store import Stores
@@ -81,7 +92,9 @@ class CatalogHoldoutSource:
     def load_holdout(self, symbols: Sequence[str], start: datetime, end: datetime) -> pl.DataFrame:
         return self.catalog.load(self._version(symbols, start, end))
 
-    def dataset_ids(self, symbols: Sequence[str], start: datetime, end: datetime) -> tuple[str, ...]:
+    def dataset_ids(
+        self, symbols: Sequence[str], start: datetime, end: datetime
+    ) -> tuple[str, ...]:
         return (self._version(symbols, start, end).id,)
 
 
@@ -109,9 +122,7 @@ class OperationalServices:
             costs=stores.costs,
             clock=clock,
         )
-        self.holdout_source = CatalogHoldoutSource(
-            validation_catalog, policy.research_start, clock
-        )
+        self.holdout_source = CatalogHoldoutSource(validation_catalog, policy.research_start, clock)
         self.sandbox = SandboxRunner(audit=stores.audit, actor="strategy_sandbox")
         self.engine = BarBacktestEngine()
         self._validation: ValidationService | None = None
@@ -234,7 +245,8 @@ class OperationalServices:
         out_dir.mkdir(parents=True, exist_ok=True)
         artifact = out_dir / f"{result.result_hash.removeprefix('sha256:')[:32]}.npz"
         if not artifact.exists():
-            np.savez_compressed(artifact, ts=result.ts, equity=result.equity, **result.series)
+            arrays: dict[str, Any] = {"ts": result.ts, "equity": result.equity, **result.series}
+            np.savez_compressed(artifact, **arrays)
         metrics = {k: float(v) for k, v in result.metrics.items()}
         metrics["sandbox_cpu_seconds"] = float(run.cpu_seconds)
         return {
@@ -242,6 +254,64 @@ class OperationalServices:
             "result_hash": result.result_hash,
             "artifact_uri": str(artifact),
             "isolation": run.isolation,
+        }
+
+    def intel_research(
+        self,
+        topic: str,
+        keywords: Sequence[str],
+        max_sources: int,
+        depth: int,
+        budget: BudgetTracker,
+    ) -> dict[str, Any]:
+        view = PlaneView(
+            self.stores.documents,
+            readable=frozenset({Plane.RESEARCH, Plane.CONTROL}),
+            writable=frozenset({Plane.RESEARCH}),
+            actor=AgentRole.INTELLIGENCE.value,
+        )
+        kb = KnowledgeBase(view, self.clock)
+        client = HttpClient(
+            HttpBudget(budget.budget.max_http_requests),
+            RawStore(self.settings.research_dir / "raw" / "intelligence"),
+            user_agent=self.settings.http_user_agent,
+        )
+        query = ResearchQuery(
+            topic=topic,
+            keywords=tuple(keywords),
+            max_sources=max_sources,
+            max_depth=depth,
+            full_text_fetches=2,
+            budget=budget.budget,
+        )
+        try:
+            result = ResearchEngine(
+                default_providers(client, self.clock), client, self.clock, knowledge=kb
+            ).run(query)
+        finally:
+            budget.charge("http", "intelligence", http_requests=client.budget.used)
+        report = persist_result(result, kb)
+        source_ids = list(dict.fromkeys(report.source_ids[s.id] for s in result.sources))
+        evidence_ids = [
+            e.id
+            for sid in source_ids
+            for e in self.stores.documents.list(EvidenceItem, where={"source_id": sid}, limit=100)
+        ]
+        return {
+            "source_ids": source_ids,
+            "evidence_ids": evidence_ids,
+            "providers": {
+                name: stats.sources_kept for name, stats in result.provider_stats.items()
+            },
+            "provider_errors": {
+                name: list(stats.errors)
+                for name, stats in result.provider_stats.items()
+                if stats.errors
+            },
+            "queries": list(result.queries_issued),
+            "duplicates": report.duplicates + report.sources_merged,
+            "http_requests": result.http_requests_used,
+            "budget_exhausted": result.budget_exhausted,
         }
 
     # ---------------------------------------------------------------- model gateway

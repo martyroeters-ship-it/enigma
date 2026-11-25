@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 
@@ -11,6 +11,10 @@ from enigma.core.config import Settings
 from enigma.fsm import ALL_MACHINES, RESEARCH_CYCLE, StateMachineStore
 from enigma.store import Stores
 from enigma.store.ledger import KILL_SWITCH
+
+if TYPE_CHECKING:
+    from enigma.orchestrator.daemon import Daemon
+    from enigma.orchestrator.institution import Institution
 
 app = typer.Typer(
     help="Enigma — autonomous quantitative research institution", no_args_is_help=True
@@ -28,14 +32,14 @@ def _stores() -> tuple[Settings, Stores]:
     return settings, Stores.open(settings.db_path)
 
 
-def _institution():  # type: ignore[no-untyped-def]
+def _institution() -> Institution:
     from enigma.orchestrator.institution import Institution  # noqa: PLC0415 - heavy imports
     from enigma.orchestrator.services import default_services  # noqa: PLC0415
 
     return Institution.build(Settings.from_env(), default_services)
 
 
-def _daemon(inst):  # type: ignore[no-untyped-def]
+def _daemon(inst: Institution) -> Daemon:
     from enigma.orchestrator.daemon import Daemon, Schedule  # noqa: PLC0415
 
     return Daemon(inst, Schedule.load(inst.settings.registries_dir / "schedules.yaml"))
