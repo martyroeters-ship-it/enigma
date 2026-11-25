@@ -18,6 +18,13 @@ from enigma.core.errors import PermissionDeniedError
 from enigma.core.hashing import canonical_json, sha256_of
 from enigma.schemas.common import Plane
 from enigma.schemas.cycle import MarketAnalysis, NextExperimentProposal, RiskReview
+from enigma.schemas.execution import (
+    DegradationAlert,
+    HumanRiskAcknowledge,
+    PaperFill,
+    PaperOrder,
+    PaperSession,
+)
 from enigma.schemas.governance import (
     AgentDecision,
     ImprovementProposal,
@@ -103,6 +110,11 @@ for _model, _kind, _plane in (
     (NextExperimentProposal, "next_experiment", Plane.CONTROL),
     (RiskReview, "risk_review", Plane.CONTROL),
     (HoldoutManifest, "holdout_manifest", Plane.VALIDATION),
+    (PaperSession, "paper_session", Plane.EXECUTION),
+    (PaperOrder, "paper_order", Plane.EXECUTION),
+    (PaperFill, "paper_fill", Plane.EXECUTION),
+    (DegradationAlert, "degradation_alert", Plane.EXECUTION),
+    (HumanRiskAcknowledge, "human_risk_acknowledge", Plane.CONTROL),
 ):
     register_kind(_model, _kind, _plane)
 
