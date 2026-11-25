@@ -43,16 +43,18 @@ from enigma.orchestrator.bindings import Services
 from enigma.orchestrator.cycle import HoldoutPolicy
 from enigma.research.generator import HypothesisGenerator
 from enigma.schemas.common import AgentRole, Plane
-from enigma.schemas.governance import Budget
+from enigma.schemas.governance import Budget, ExecutionMode
 from enigma.schemas.knowledge import EvidenceItem
 from enigma.schemas.quant import ResearchContext
-from enigma.schemas.research import CostModel, DatasetVersion, StrategyPackage
+from enigma.schemas.research import CostModel, DatasetVersion, Hypothesis, StrategyPackage
 from enigma.schemas.validation import RedactedValidationSummary, ValidationRequest
 from enigma.store import Stores
 from enigma.store.documents import PlaneView
 from enigma.strategy import SandboxJob, SandboxRunner, build_package, symbol_arrays
+from enigma.strategy.codegen import StrategyCodeGenerator
 from enigma.strategy.interface import INTERFACE_VERSION
 from enigma.strategy.package import package_content_hash
+from enigma.strategy.spec import spec_from_hypothesis
 from enigma.validation import ValidationService, summary_id_for
 
 BACKTEST_NOTIONAL_USD = 1_000_000.0
@@ -380,6 +382,50 @@ class OperationalServices:
         )
         return result.model_dump(mode="json")
 
+    def strategy_codegen(
+        self,
+        hypothesis_id: str,
+        dataset_version_id: str,
+        task_id: str,
+        budget: BudgetTracker,
+        actor: str,
+        model: str | None = "local-qwen",
+    ) -> dict[str, Any]:
+        hyp = self.stores.documents.require(Hypothesis, hypothesis_id)
+        dataset = self.stores.documents.require(DatasetVersion, dataset_version_id)
+        spec = spec_from_hypothesis(
+            hyp,
+            available_columns=tuple(dataset.columns),
+            created_by=AgentRole(actor),
+            created_at=self.clock.now(),
+            execution_mode=ExecutionMode.LLM,
+        )
+        self.stores.documents.put(spec, recorded_by=actor)
+        cost = load_cost_model(self.settings.registries_dir, hyp.cost_model_version)
+        prompts = PromptRegistry.load(self.settings.registries_dir / "prompts")
+        codegen = StrategyCodeGenerator(
+            StructuredLLM(self.gateway), prompts, model=model, max_output_tokens=1600
+        )
+        record = codegen.generate(
+            spec,
+            cost_model=cost,
+            actor=AgentRole(actor),
+            task_id=task_id,
+            budget=budget.budget,
+            now=self.clock.now(),
+        )
+        self.stores.documents.put(record, recorded_by=actor)
+        package = codegen.last_package
+        if package is not None:
+            self.stores.documents.put(package, recorded_by=actor)
+        return {
+            "ok": record.ok,
+            "failure_reason": record.failure_reason,
+            "package_id": package.id if package else None,
+            "generation_id": record.id,
+            "record": record.model_dump(mode="json"),
+        }
+
     def gateway_benchmark(self) -> dict[str, Any]:
         budget = Budget(max_usd=0.25, max_tokens=100_000, max_wall_seconds=600)
         report = BenchmarkRunner(self.gateway, budget).run()
@@ -396,6 +442,7 @@ class OperationalServices:
             gateway_status=self.gateway_status,
             llm_structured=self.llm_structured,
             quant_hypothesis_generate=self.quant_hypothesis_generate,
+            strategy_codegen=self.strategy_codegen,
             gateway_benchmark=self.gateway_benchmark,
             research_cutoff=self.research_cutoff,
         )

@@ -30,7 +30,12 @@ from enigma.schemas.common import AgentRole
 from enigma.schemas.cycle import MarketAnalysis, NextExperimentProposal
 from enigma.schemas.governance import ExecutionMode, Reflection, ReflectionOutcome
 from enigma.schemas.knowledge import EvidenceItem, FailureCondition, Lesson
-from enigma.schemas.quant import DatasetInfo, GenerationResult, HypothesisProposal
+from enigma.schemas.quant import (
+    DatasetInfo,
+    GenerationResult,
+    HypothesisProposal,
+    StrategyGenerationRecord,
+)
 from enigma.schemas.research import (
     DatasetVersion,
     Experiment,
@@ -361,8 +366,75 @@ class StrategyEngineeringAgent(Agent):
     def execute(self, ctx: AgentContext) -> TaskOutcome:
         i = ctx.task.inputs
         hyp = ctx.view.require(Hypothesis, i["hypothesis_id"])
+        mech_id = hyp.family_id.removeprefix("fam_")
+        use_llm = i.get("strategy_mode") == "llm" or mech_id not in MECHANISMS
+        if use_llm:
+            return self._execute_llm_codegen(ctx)
+        return self._execute_template(ctx)
+
+    def _execute_llm_codegen(self, ctx: AgentContext) -> TaskOutcome:
+        """LLM codegen path. Never falls back to mechanism templates on failure."""
+        i = ctx.task.inputs
+        hyp = ctx.view.require(Hypothesis, i["hypothesis_id"])
+        dataset = ctx.view.require(DatasetVersion, i["dataset_version_id"])
+        try:
+            raw = ctx.tools.call(
+                "strategy.codegen",
+                hypothesis_id=hyp.id,
+                dataset_version_id=dataset.id,
+                task_id=ctx.task.id,
+                budget=ctx.budget,
+            )
+        except (ProviderUnavailableError, BudgetExceededError, KeyError) as exc:
+            raise ProviderUnavailableError(
+                f"LLM strategy codegen unavailable (no silent template fallback): {exc}"
+            ) from exc
+        if not raw.get("ok"):
+            raise RuntimeError(raw.get("failure_reason") or "strategy codegen failed")
+        if isinstance(raw.get("record"), dict):
+            ctx.view.put(StrategyGenerationRecord.model_validate(raw["record"]))
+        base = ctx.view.require(StrategyPackage, raw["package_id"])
+        return self._run_trials(
+            ctx,
+            hyp,
+            dataset,
+            source_code=base.source_code,
+            entrypoint=base.entrypoint,
+            required_columns=tuple(base.required_columns),
+            name_prefix="llm",
+            execution_mode=ExecutionMode.LLM,
+            generation_id=raw.get("generation_id"),
+        )
+
+    def _execute_template(self, ctx: AgentContext) -> TaskOutcome:
+        i = ctx.task.inputs
+        hyp = ctx.view.require(Hypothesis, i["hypothesis_id"])
         dataset = ctx.view.require(DatasetVersion, i["dataset_version_id"])
         mech = MECHANISMS[hyp.family_id.removeprefix("fam_")]
+        return self._run_trials(
+            ctx,
+            hyp,
+            dataset,
+            source_code=mech.source_template,
+            entrypoint=mech.entrypoint,
+            required_columns=mech.features,
+            name_prefix=mech.id,
+            execution_mode=ExecutionMode.DETERMINISTIC,
+        )
+
+    def _run_trials(
+        self,
+        ctx: AgentContext,
+        hyp: Hypothesis,
+        dataset: DatasetVersion,
+        *,
+        source_code: str,
+        entrypoint: str,
+        required_columns: tuple[str, ...],
+        name_prefix: str,
+        execution_mode: ExecutionMode,
+        generation_id: str | None = None,
+    ) -> TaskOutcome:
         plan = trial_plan(hyp)
         experiments: list[Experiment] = []
         packages: list[str] = []
@@ -378,12 +450,12 @@ class StrategyEngineeringAgent(Agent):
                 continue
             package: StrategyPackage = ctx.tools.call(
                 "strategy.build",
-                source_code=mech.source_template,
-                entrypoint=mech.entrypoint,
+                source_code=source_code,
+                entrypoint=entrypoint,
                 params=params,
                 hypothesis_id=hyp.id,
-                name=f"{mech.id}-{index}",
-                required_columns=mech.features,
+                name=f"{name_prefix}-{index}",
+                required_columns=required_columns,
                 cost_model_version=hyp.cost_model_version,
             )
             ctx.view.put(package)
@@ -506,17 +578,21 @@ class StrategyEngineeringAgent(Agent):
         reproducible = bool(succeeded) and all(
             e.metrics.get("twin_reproducible") == 1.0 for e in succeeded
         )
+        outputs: dict[str, Any] = {
+            "experiment_ids": [e.id for e in experiments],
+            "package_ids": packages,
+            "candidate_package_id": candidate.strategy_package_id if candidate else None,
+            "candidate_experiment_id": candidate.id if candidate else None,
+            "result_hashes": [e.result_hash for e in succeeded],
+            "reproducible": reproducible,
+            "trial_errors": [e.error for e in experiments if e.error][:3],
+            "net_sharpe_by_experiment": table,
+            "execution_mode": execution_mode,
+        }
+        if generation_id:
+            outputs["generation_id"] = generation_id
         return TaskOutcome(
-            outputs={
-                "experiment_ids": [e.id for e in experiments],
-                "package_ids": packages,
-                "candidate_package_id": candidate.strategy_package_id if candidate else None,
-                "candidate_experiment_id": candidate.id if candidate else None,
-                "result_hashes": [e.result_hash for e in succeeded],
-                "reproducible": reproducible,
-                "trial_errors": [e.error for e in experiments if e.error][:3],
-                "net_sharpe_by_experiment": table,
-            },
+            outputs=outputs,
             decisions=[
                 DecisionRecord(
                     "candidate_selection",
@@ -527,6 +603,7 @@ class StrategyEngineeringAgent(Agent):
                     "Selection on the research window is accounted for by the trial ledger.",
                     input_refs=(hyp.id, dataset.id),
                     output_refs=tuple(e.id for e in experiments),
+                    execution_mode=execution_mode,
                 )
             ],
             metrics={"trials": float(len(experiments)), "succeeded": float(len(succeeded))},

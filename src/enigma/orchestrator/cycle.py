@@ -330,15 +330,20 @@ class CycleDriver:
         return True
 
     def _from_data_acquired(self, cycle_id: str, state: dict[str, Any]) -> bool:
-        impl = self._task(
-            cycle_id,
-            "strategy.implement",
-            {
-                "hypothesis_id": state["hypothesis_id"],
-                "dataset_version_id": state["dataset_version_id"],
-                "cycle_id": cycle_id,
-            },
-        )
+        strategy_inputs: dict[str, Any] = {
+            "hypothesis_id": state["hypothesis_id"],
+            "dataset_version_id": state["dataset_version_id"],
+            "cycle_id": cycle_id,
+        }
+        strategy_mode = os.environ.get("ENIGMA_STRATEGY_MODE", "").strip().lower()
+        if (
+            not strategy_mode
+            and os.environ.get("ENIGMA_HYPOTHESIS_MODE", "").strip().lower() == "llm"
+        ):
+            strategy_mode = "llm"
+        if strategy_mode == "llm":
+            strategy_inputs["strategy_mode"] = "llm"
+        impl = self._task(cycle_id, "strategy.implement", strategy_inputs)
         state["tasks"]["strategy"] = impl.id
         if (failed := self._failed(impl)) is not None:
             self.abort(cycle_id, f"strategy task failed: {failed.error}")

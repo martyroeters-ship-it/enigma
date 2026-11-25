@@ -47,6 +47,7 @@ class Services:
     research_cutoff: Callable[[Sequence[str]], datetime]
     llm_structured: ToolFn | None = None
     quant_hypothesis_generate: ToolFn | None = None
+    strategy_codegen: ToolFn | None = None
     gateway_benchmark: ToolFn | None = None
 
 
@@ -246,6 +247,16 @@ def build_registry(core: CoreTools, services: Services) -> ToolRegistry:
                 "LLM HypothesisGenerator over a sealed ResearchContext",
                 r,
                 services.quant_hypothesis_generate,
+                pass_actor=True,
+            )
+        )
+    if services.strategy_codegen is not None:
+        reg.register(
+            Tool(
+                "strategy.codegen",
+                "LLM StrategyCodeGenerator from a cycle Hypothesis",
+                r,
+                services.strategy_codegen,
                 pass_actor=True,
             )
         )
