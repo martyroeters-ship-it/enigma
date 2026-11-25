@@ -16,6 +16,8 @@ Values are read from the environment at call time and are never stored, logged, 
 | Model provider: Groq / Together / DeepSeek / Mistral | `GROQ_API_KEY`, `TOGETHER_API_KEY`, `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY` | Enables those routes |
 | Local models (free) | `OLLAMA_HOST`, `VLLM_BASE_URL`, `LMSTUDIO_BASE_URL` | Uses operator-hosted models at zero cost |
 | **Model spend ceiling** | `ENIGMA_MAX_DAILY_API_SPEND_USD` | Global daily cap; **default 0 = no paid model calls even if keys are set** |
+| Search: OpenAlex | `OPENALEX_API_KEY` | Most useful search key: keyless OpenAlex shares a ~100 requests/day allowance per IP, and a depth-1 research run uses ~10 |
+| Polite-pool contact | `ENIGMA_CONTACT_EMAIL` | Contact address sent to OpenAlex and Crossref |
 | Search: Semantic Scholar | `SEMANTIC_SCHOLAR_API_KEY` | Adds Semantic Scholar (keyless access is rate limited, 429) |
 | Search: GitHub | `GITHUB_TOKEN` | Raises GitHub search rate limits (works unauthenticated) |
 | Search: web | `BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `SERPAPI_API_KEY` | Adds general web search providers |
