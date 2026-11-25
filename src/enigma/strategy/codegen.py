@@ -185,7 +185,4 @@ class StrategyCodeGenerator:
             model=self.model,
             max_output_tokens=self.max_output_tokens,
         )
-        prov = provenance_of(traced.response)
-        data = prov.model_dump()
-        data["prompt_ref"] = prompt.ref
-        return traced.value, ModelProvenance.model_validate(data)
+        return traced.value, provenance_of(traced.response, prompt.ref)

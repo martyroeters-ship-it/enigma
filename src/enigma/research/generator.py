@@ -198,9 +198,4 @@ class HypothesisGenerator:
         )
         if not isinstance(traced.value, HypothesisProposal):
             raise StructuredOutputError("expected HypothesisProposal")
-        prov = provenance_of(traced.response)
-        # Attach prompt ref onto provenance when field allows
-        data = prov.model_dump()
-        data["prompt_ref"] = prompt.ref
-        prov = type(prov).model_validate(data)
-        return traced.value, prov
+        return traced.value, provenance_of(traced.response, prompt.ref)
