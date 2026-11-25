@@ -34,7 +34,7 @@ class StructuredLLM:
         self.last_response: ModelResponse | None = None
 
     def is_available(self) -> bool:
-        return bool(self.gateway.available_providers())
+        return self.gateway.has_available_provider()
 
     def generate(
         self,

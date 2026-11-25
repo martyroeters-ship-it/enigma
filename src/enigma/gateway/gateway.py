@@ -276,6 +276,11 @@ class ModelGateway:
     def available_providers(self) -> list[str]:
         return [s.provider for s in self.credential_report() if s.available]
 
+    def has_available_provider(self) -> bool:
+        """Cheap check: key-based providers first, local servers probed only if needed."""
+        names = sorted(self.registry.providers, key=lambda n: self.registry.providers[n].local)
+        return any(self.provider_status(n).available for n in names)
+
     def missing_credentials(self) -> dict[str, tuple[str, ...]]:
         """Provider -> env vars that would enable it (any one key var suffices)."""
         return {
