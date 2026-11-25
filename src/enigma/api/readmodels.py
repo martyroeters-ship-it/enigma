@@ -62,7 +62,9 @@ class ReadModels:
             "workers": [
                 {
                     "worker": r["name"].removeprefix(HEARTBEAT_PREFIX),
-                    "status": self._worker_status(r["value"], r["updated_at"]),
+                    "status": self._worker_status(
+                        r["name"].removeprefix(HEARTBEAT_PREFIX), r["value"], r["updated_at"]
+                    ),
                     "last_seen": r["updated_at"],
                 }
                 for r in beats
@@ -70,9 +72,15 @@ class ReadModels:
             "tasks": self.s.queue.counts(),
         }
 
-    def _worker_status(self, status: str, updated_at: str) -> str:
+    def _worker_status(self, worker: str, status: str, updated_at: str) -> str:
         if status == "stopped":
             return status
+        # A dead local pid is not a live model call. "stale" is reserved for a
+        # process that is still alive but has not written a heartbeat.
+        from enigma.orchestrator.daemon import local_worker_alive  # noqa: PLC0415
+
+        if not local_worker_alive(worker):
+            return "stopped (process exited)"
         if self.clock.now() - datetime.fromisoformat(updated_at) > STALE_AFTER:
             return "stale (no heartbeat)"
         return status

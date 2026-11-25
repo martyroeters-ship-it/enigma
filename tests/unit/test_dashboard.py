@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import socket
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -62,3 +64,14 @@ def test_worker_without_recent_heartbeat_is_shown_stale(stores) -> None:  # type
     assert status == {"host:1": "stale (no heartbeat)", "host:2": "stopped"}
     fresh = {w["worker"]: w["status"] for w in ReadModels(stores).health()["workers"]}
     assert fresh["host:1"] == "running"
+
+
+def test_dead_local_worker_is_not_called_stale(stores) -> None:  # type: ignore[no-untyped-def]
+    dead = f"{socket.gethostname()}:999999"
+    live = f"{socket.gethostname()}:{os.getpid()}"
+    stores.flags.set(HEARTBEAT_PREFIX + dead, "running: quant.hypothesize", "worker")
+    stores.flags.set(HEARTBEAT_PREFIX + live, "running", "worker")
+    later = FrozenClock(datetime.now(UTC) + timedelta(minutes=5))
+    status = {w["worker"]: w["status"] for w in ReadModels(stores, later).health()["workers"]}
+    assert status[dead] == "stopped (process exited)"
+    assert status[live] == "stale (no heartbeat)"
