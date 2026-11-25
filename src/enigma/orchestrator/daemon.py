@@ -6,6 +6,8 @@ import os
 import signal
 import socket
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -99,6 +101,50 @@ class Daemon:
             self.inst.stores.flags.set(HEARTBEAT_PREFIX + self.worker_name, status, "system")
             self._last_beat = now
 
+    @contextmanager
+    def _heartbeat_pulse(self) -> Iterator[None]:
+        """Keep the worker flag fresh while ``run_once`` is blocked in a model call.
+
+        The dashboard marks a heartbeat older than one minute as stale. A hypothesis
+        call can occupy this step for many minutes, and the write at the end of
+        ``step`` does not run until the call returns. The pulse uses
+        ``heartbeat_seconds`` (15 in the production schedule). An interval of 0
+        leaves the pulse off so fast tests stay single-threaded. The same pulse
+        renews the task lease: the lease is 30 minutes and one call can run longer
+        than that while this process is still alive.
+        """
+        interval = self.schedule.heartbeat_seconds
+        if interval <= 0:
+            yield
+            return
+        stop = threading.Event()
+
+        def pulse() -> None:
+            while not stop.is_set():
+                self.heartbeat(self._inflight_status(), force=True)
+                if stop.wait(interval):
+                    return
+
+        thread = threading.Thread(target=pulse, name="enigma-heartbeat", daemon=True)
+        thread.start()
+        try:
+            yield
+        finally:
+            stop.set()
+            thread.join(timeout=5.0)
+
+    def _inflight_status(self) -> str:
+        rows = self.inst.stores.db.query(
+            "SELECT id, kind FROM task_queue WHERE status = 'running' AND lease_owner = ?",
+            (self.worker_name,),
+        )
+        lease = self.inst.worker.lease
+        for row in rows:
+            self.inst.stores.queue.heartbeat(str(row["id"]), self.worker_name, lease=lease)
+        if not rows:
+            return "running"
+        return f"running: {rows[0]['kind']}"
+
     def shutdown(self) -> None:
         self.heartbeat("stopped", force=True)
         self.inst.stores.audit.record("system", "daemon.stopped", self.worker_name, {})
@@ -111,11 +157,14 @@ class Daemon:
         progressed = False
         for cycle_id in self.inst.driver.active_cycles():
             progressed |= self.inst.driver.tick(cycle_id)
-        task = self.inst.worker.run_once()
+        with self._heartbeat_pulse():
+            task = self.inst.worker.run_once()
         progressed |= task is not None
         progressed |= self._chain_next_experiments()
         progressed |= self._schedule_tech_scan()
-        self.heartbeat(f"running: {task.kind}" if task else "idle")
+        # force: a pulse may have written moments ago, and that must not swallow
+        # the status this step actually finished with.
+        self.heartbeat(f"running: {task.kind}" if task else "idle", force=True)
         return progressed
 
     def run(self, until_idle: bool = False, max_iterations: int | None = None) -> int:
