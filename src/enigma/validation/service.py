@@ -677,6 +677,7 @@ class ValidationService:
         self.custody.store_report(report)
         self.documents.put(report)
         summary = RedactedValidationSummary(
+            id=new_id("vsm"),
             report_id=report.id,
             strategy_package_id=package.id,
             protocol_version=report.protocol_version,

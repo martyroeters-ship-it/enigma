@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import pytest
-from _synthetic import BASIS_SIGN, MOMENTUM, cost_model, package
 
+from _synthetic import BASIS_SIGN, MOMENTUM, cost_model, package
 from enigma.core.errors import IntegrityError
 from enigma.strategy import (
     INTERFACE_VERSION,
@@ -49,7 +49,9 @@ def test_static_check_rejects_escape_routes(body: str, rule: str) -> None:
 
 
 def test_static_check_rejects_top_level_code_and_missing_entrypoint() -> None:
-    rules = {v.rule for v in check_source("import numpy as np\nfor i in range(3):\n    pass\n", "X")}
+    rules = {
+        v.rule for v in check_source("import numpy as np\nfor i in range(3):\n    pass\n", "X")
+    }
     assert {"top_level", "entrypoint"} <= rules
     assert {v.rule for v in check_source("def f(:\n", "X")} == {"syntax"}
 
@@ -60,7 +62,9 @@ def test_build_package_hash_is_content_addressed() -> None:
     assert a.content_hash == b.content_hash
     assert a.interface_version == INTERFACE_VERSION
     c = package(BASIS_SIGN, "BasisSign", ("basis",), {"threshold": 0.1})
-    d = package(BASIS_SIGN, "BasisSign", ("basis",), {"threshold": 0.0}, cm=cost_model(taker_fee_bps=5))
+    d = package(
+        BASIS_SIGN, "BasisSign", ("basis",), {"threshold": 0.0}, cm=cost_model(taker_fee_bps=5)
+    )
     assert len({a.content_hash, c.content_hash, d.content_hash}) == 3
     assert a.content_hash == package_content_hash(
         BASIS_SIGN, "BasisSign", {"threshold": 0.0}, INTERFACE_VERSION, cost_model(), ("basis",), 1

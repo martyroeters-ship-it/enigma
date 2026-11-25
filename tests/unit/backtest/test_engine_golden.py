@@ -7,8 +7,8 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import polars as pl
 import pytest
-from _synthetic import cost_model, make_panel
 
+from _synthetic import cost_model, make_panel
 from enigma.backtest import BarBacktestEngine, CapacityExceededError
 
 T0 = datetime(2024, 1, 1, tzinfo=UTC)

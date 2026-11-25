@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from _synthetic import BASIS_SIGN, LEAKY, MOMENTUM, RANDOM_SIGN, make_panel, package
 
+from _synthetic import BASIS_SIGN, LEAKY, MOMENTUM, RANDOM_SIGN, make_panel, package
 from enigma.schemas.research import StrategyPackage
 from enigma.store import Stores
 from enigma.strategy import (

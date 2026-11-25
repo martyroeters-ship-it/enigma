@@ -90,7 +90,7 @@ class BasisSign(Strategy):
         return np.where(b > self.threshold, 1.0, np.where(b < -self.threshold, -1.0, 0.0))
 '''
 
-MOMENTUM = '''
+MOMENTUM = """
 import numpy as np
 from enigma.strategy.interface import Strategy, StrategyMeta
 
@@ -112,9 +112,9 @@ class Momentum(Strategy):
         if c.shape[0] > k:
             out[k:] = np.sign(c[k:] - c[:-k])
         return out
-'''
+"""
 
-RANDOM_SIGN = '''
+RANDOM_SIGN = """
 import numpy as np
 from enigma.strategy.interface import Strategy, StrategyMeta
 
@@ -133,10 +133,10 @@ class RandomSign(Strategy):
         n = data["perp_close"].shape[0]
         draws = np.random.default_rng(self.seed).random(n)
         return np.where(draws < 0.5, -1.0, 1.0)
-'''
+"""
 
 # Uses the NEXT bar's close: textbook look-ahead.
-LEAKY = '''
+LEAKY = """
 import numpy as np
 from enigma.strategy.interface import Strategy, StrategyMeta
 
@@ -152,9 +152,9 @@ class Leaky(Strategy):
         c = data["perp_close"]
         nxt = np.append(c[1:], c[-1:])
         return np.sign(nxt - c)
-'''
+"""
 
-CRASHES = '''
+CRASHES = """
 import numpy as np
 from enigma.strategy.interface import Strategy, StrategyMeta
 
@@ -168,7 +168,7 @@ class Crashes(Strategy):
 
     def target_positions(self, data):
         raise RuntimeError("boom")
-'''
+"""
 
 
 def cost_model(**overrides: float) -> CostModel:

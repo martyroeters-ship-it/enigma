@@ -74,6 +74,7 @@ class ValidationReport(StrictModel):
 class RedactedValidationSummary(StrictModel):
     """What the research plane may see: pass/fail per gate, no holdout path structure."""
 
+    id: NonEmptyStr
     report_id: NonEmptyStr
     strategy_package_id: NonEmptyStr
     protocol_version: NonEmptyStr
