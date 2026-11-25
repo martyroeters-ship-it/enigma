@@ -61,7 +61,9 @@ def test_scan_opens_one_objective_per_window(tmp_path: Path) -> None:
     assert objective is not None
     assert "not a validation result" in objective.statement
     cycles = rig.stores.checkpoints.list("research_cycle")
-    assert cycles == []
+    assert len(cycles) == 1
+    assert cycles[0]["state"]["objective_id"] == reports[0].objective_id
+    assert cycles[0]["state"]["origin"] == "market_scan"
 
 
 def _inst(rig: Rig) -> Institution:

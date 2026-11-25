@@ -20,3 +20,10 @@ def test_completed_cycle_resolves_a_forecast_and_stores_a_postmortem(tmp_path: P
     assert len(postmortems) == 1
     assert postmortems[0].cycle_id == cycle
     assert postmortems[0].error_class.value == "variance"
+    micro = [
+        task
+        for task in rig.stores.queue.list(correlation_id=cycle)
+        if task.kind == "microstructure.analyze"
+    ]
+    assert micro and micro[0].outputs.get("hybrid_status") == "compared"
+    assert micro[0].outputs.get("hybrid_winner") in {"ols", "constant_mean"}

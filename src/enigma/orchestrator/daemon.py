@@ -34,6 +34,7 @@ from enigma.orchestrator.planning import build_inputs, proposal_candidates, read
 from enigma.schemas.common import AgentRole
 from enigma.schemas.cycle import NextExperimentProposal, ProposalState
 from enigma.schemas.governance import AgentDecision
+from enigma.schemas.market import MarketScanReport
 from enigma.schemas.research import ResearchObjective
 
 log = get_logger(__name__)
@@ -304,11 +305,33 @@ class Daemon:
     def _schedule_market_scan(self) -> bool:
         if self.schedule.market_scan_interval_hours <= 0:
             return False
-        return run_market_scan(
+        created = run_market_scan(
             self.inst.stores,
             self.inst.clock.now(),
             interval_hours=self.schedule.market_scan_interval_hours,
         )
+        if created:
+            self._open_scan_objective()
+        return created
+
+    def _open_scan_objective(self) -> None:
+        if len(self.inst.driver.active_cycles()) >= self.schedule.max_concurrent_cycles:
+            return
+        now = self.inst.clock.now()
+        since = (now - timedelta(days=1)).isoformat()
+        if self.inst.fsm.created_since(RESEARCH_CYCLE, since) >= self.schedule.max_cycles_per_day:
+            return
+        reports = self.inst.stores.documents.list(MarketScanReport, limit=1)
+        if not reports or not reports[0].objective_id:
+            return
+        objective_id = reports[0].objective_id
+        for row in self.inst.stores.checkpoints.list("research_cycle"):
+            if row["state"].get("objective_id") == objective_id:
+                return
+        try:
+            self.inst.driver.open_objective(objective_id)
+        except (KeyError, ValueError):
+            return
 
 
 def status_snapshot(inst: Institution) -> dict[str, Any]:

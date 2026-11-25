@@ -20,6 +20,26 @@ class HybridComparison:
     loser_failure: str
 
 
+def compare_funding_to_returns(
+    funding: list[float | None], closes: list[float | None]
+) -> HybridComparison | None:
+    """OLS versus a constant mean. Later closes are the returns; they are not used to fit."""
+    xs: list[float] = []
+    ys: list[float] = []
+    for index in range(len(funding) - 1):
+        rate, left, right = funding[index], closes[index], closes[index + 1]
+        if rate is None or left is None or right is None or left == 0:
+            continue
+        xs.append(float(rate))
+        ys.append(float(right) / float(left) - 1.0)
+    if len(xs) < 8:
+        return None
+    holdout = max(1, len(xs) // 5)
+    if len(xs) - holdout < 2:
+        return None
+    return compare_holdout(xs, ys, holdout=holdout)
+
+
 def compare_holdout(x: list[float], y: list[float], *, holdout: int) -> HybridComparison:
     if holdout < 1 or len(x) != len(y) or len(x) - holdout < 2:
         raise ValueError("need a train prefix of at least 2 and a holdout of at least 1")

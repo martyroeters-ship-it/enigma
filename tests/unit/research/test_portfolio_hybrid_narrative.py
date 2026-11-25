@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from enigma.research.hybrid import compare_holdout
+from enigma.research.hybrid import compare_funding_to_returns, compare_holdout
 from enigma.research.narrative import intensity_at, parse_rss
 from enigma.research.portfolio import research_proposal
 from enigma.schemas.common import ClaimLevel
@@ -53,6 +53,14 @@ def test_two_l3_sleeves_can_be_marked_executable_without_an_order() -> None:
     )
     assert proposal.executable is True
     assert proposal.claim_level is ClaimLevel.L3_INDEPENDENTLY_VALIDATED
+
+
+def test_funding_return_comparison_uses_the_next_close() -> None:
+    closes = [100.0 + index for index in range(12)]
+    funding = [0.01] * 11 + [0.0]
+    comparison = compare_funding_to_returns(funding, closes)
+    assert comparison is not None
+    assert comparison.winner in {"ols", "constant_mean"}
 
 
 def test_ols_beats_the_constant_on_holdout_and_ignores_holdout_y() -> None:
