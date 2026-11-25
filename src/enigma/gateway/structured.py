@@ -50,6 +50,9 @@ def provenance_of(response: ModelResponse, prompt_ref: str | None = None) -> Mod
         cost_usd=response.cost_usd,
         latency_ms=response.latency_ms,
         cached=response.cached,
+        structured_mode=response.structured_mode,
+        repaired=response.repaired,
+        finish_reason=response.finish_reason.value,
     )
 
 
