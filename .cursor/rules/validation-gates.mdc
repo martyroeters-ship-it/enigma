@@ -1,0 +1,31 @@
+---
+description: Enigma validation — programmatic gates only; no LLM judgment of pass/fail
+alwaysApply: true
+---
+
+# Validation gates
+
+## Non-negotiable
+
+- `ValidationReport.overall` and each gate result MUST be computed by deterministic code in the validation plane.
+- LLMs may explain a report; they MUST NOT set or override pass/fail.
+- Research-plane metrics never confer L3 / independently validated status.
+
+## Required practices when coding validation or backtests
+
+- Register experiments before runs (trial ledger / multiple-testing)
+- Apply versioned cost models (fees, slippage, funding) on validation re-run
+- Enforce PIT integrity, chronological splits, embargo where configured
+- Cite `protocol_version`, `validator_build_sha`, dataset IDs, package `content_hash`
+- Identical inputs → identical gate results (add regression tests)
+
+## M1 slice protocol
+
+Use `protocol_version: 0.1.0-slice` gates as listed in IMPLEMENTATION_PLAN / VALIDATION_PROTOCOL. Do not claim full institutional L3 until full suite is enabled.
+
+## Forbidden
+
+- Soft-passing because the hypothesis “sounds right”
+- Dropping failed trials from the ledger
+- Reading holdout raw series from research workers
+- Re-labeling a FAILED package as PASSED without a new package ID

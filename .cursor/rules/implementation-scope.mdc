@@ -1,0 +1,30 @@
+---
+description: Enigma implementation scope — M1 vertical slice first; resist over-engineering
+alwaysApply: true
+---
+
+# Implementation scope
+
+## First proof (M1)
+
+Build the **13-step autonomous vertical slice** defined in `docs/IMPLEMENTATION_PLAN.md`:
+
+1. Objective → 2. Delegation → 3. Real external research → 4. Source-backed knowledge → 5. Falsifiable hypothesis → 6. Historical data → 7. Isolated strategy execution → 8. Reproducible backtest → 9. Independent validation → 10. Reflection → 11. Lessons stored → 12. Next experiment proposed → 13. Resume after interruption
+
+## Prefer
+
+- Thin packages on the critical path: core, schemas, data, research, validation, agents/comm, scheduler
+- Postgres outbox + explicit FSM
+- BTC/ETH spot + perps only
+- CLI timeline acceptable if dashboard lags
+
+## Defer / reject for M1
+
+- Live capital, multi-agent debate UIs, Neo4j, Kubernetes-heavy prod topology
+- PyTorch/RL/evolutionary search as default alpha path
+- Orchestration frameworks without a benchmark beating the FSM
+- Portfolio management until ≥1 validated path exists (or explicit single-strategy paper policy in M2)
+
+## Workstream contracts
+
+Integrate via published interfaces in IMPLEMENTATION_PLAN §2. Do not invent cross-plane shortcuts to “make the demo work.”
