@@ -47,9 +47,9 @@ kpis:
 budget:
   max_usd: 0.5
   max_tokens: 200000
-  max_http_requests: 0
-  max_wall_seconds: 900
+  max_http_requests: 40
+  max_wall_seconds: 1800
   max_cpu_seconds: 600
 model_route: quant_research
 instructions: State mechanism, prediction, formal statement and falsification criteria. Consult prior
-  lessons and failures first.
+  lessons and failures first. Local Ollama calls consume the HTTP budget.
