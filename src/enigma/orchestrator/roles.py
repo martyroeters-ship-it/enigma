@@ -357,6 +357,7 @@ class StrategyEngineeringAgent(Agent):
                 delta <= REPRODUCIBILITY_EPS and first["result_hash"] == twin["result_hash"]
             )
             metrics = {k: float(v) for k, v in first["metrics"].items()}
+            metrics.update({k: float(v) for k, v in first.get("resources", {}).items()})
             metrics["twin_max_abs_delta"] = float(delta)
             metrics["twin_reproducible"] = 1.0 if reproducible else 0.0
             exp = exp.model_copy(

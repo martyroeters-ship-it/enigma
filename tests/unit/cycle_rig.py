@@ -208,6 +208,8 @@ class FakeServices:
             "metrics": metrics,
             "result_hash": sha256_of([package_id, seed, metrics]),
             "artifact_uri": None,
+            # Resource usage varies between identical runs; it must not count as a result.
+            "resources": {"sandbox_cpu_seconds": float(len(self.calls))},
         }
 
     def validation_run(self, request_id: str) -> dict[str, Any]:

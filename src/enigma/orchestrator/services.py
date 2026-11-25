@@ -247,10 +247,9 @@ class OperationalServices:
         if not artifact.exists():
             arrays: dict[str, Any] = {"ts": result.ts, "equity": result.equity, **result.series}
             np.savez_compressed(artifact, **arrays)
-        metrics = {k: float(v) for k, v in result.metrics.items()}
-        metrics["sandbox_cpu_seconds"] = float(run.cpu_seconds)
         return {
-            "metrics": metrics,
+            "metrics": {k: float(v) for k, v in result.metrics.items()},
+            "resources": {"sandbox_cpu_seconds": float(run.cpu_seconds)},
             "result_hash": result.result_hash,
             "artifact_uri": str(artifact),
             "isolation": run.isolation,
