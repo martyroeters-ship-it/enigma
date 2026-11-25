@@ -52,7 +52,6 @@ DENIED_EVENT_PREFIXES = (
     "smtplib.",
     "telnetlib.",
     "webbrowser.",
-    "sys._getframe",
     "sys.setprofile",
     "sys.settrace",
     "sys.addaudithook",
