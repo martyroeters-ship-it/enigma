@@ -36,6 +36,29 @@ class Task(StrictModel):
     updated_at: UtcDatetime
 
 
+class ExecutionMode(StrEnum):
+    """How a decision was produced; shown on the dashboard so fallbacks are never mistaken for
+    model reasoning."""
+
+    LLM = "llm"
+    DETERMINISTIC = "deterministic"
+    DETERMINISTIC_FALLBACK = "deterministic_fallback"
+
+
+class ModelProvenance(StrictModel):
+    provider: NonEmptyStr
+    model_id: NonEmptyStr
+    model_version: NonEmptyStr
+    request_hash: NonEmptyStr
+    raw_response_hash: NonEmptyStr
+    prompt_ref: str | None = None
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
+    cost_usd: float = Field(default=0.0, ge=0)
+    latency_ms: float = Field(default=0.0, ge=0)
+    cached: bool = False
+
+
 class AgentDecision(StrictModel):
     """Structured decision record with a reasoning summary (never hidden chain-of-thought)."""
 
@@ -50,6 +73,9 @@ class AgentDecision(StrictModel):
     output_refs: tuple[str, ...] = ()
     instructions_version: NonEmptyStr
     created_at: UtcDatetime
+    execution_mode: ExecutionMode = ExecutionMode.DETERMINISTIC
+    fallback_reason: str | None = None
+    model_calls: tuple[ModelProvenance, ...] = ()
 
 
 class ReflectionOutcome(StrEnum):

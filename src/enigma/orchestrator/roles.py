@@ -324,10 +324,18 @@ class StrategyEngineeringAgent(Agent):
             ctx.view.put(exp)
             try:
                 first = ctx.tools.call(
-                    "backtest.run", package_id=package.id, dataset_version_id=dataset.id, seed=0
+                    "backtest.run",
+                    package_id=package.id,
+                    dataset_version_id=dataset.id,
+                    seed=0,
+                    budget=ctx.budget,
                 )
                 twin = ctx.tools.call(
-                    "backtest.run", package_id=package.id, dataset_version_id=dataset.id, seed=0
+                    "backtest.run",
+                    package_id=package.id,
+                    dataset_version_id=dataset.id,
+                    seed=0,
+                    budget=ctx.budget,
                 )
             except Exception as exc:  # sandbox violations and runtime errors are trial results
                 exp = exp.model_copy(
