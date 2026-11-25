@@ -48,5 +48,39 @@ def test_derive_lessons_accepts_unknown_llm_domain() -> None:
     lessons = derive_lessons(ev, NOW)
     assert lessons
     assert "arbitrage" in lessons[0].statement
+    assert "cryptocurrency" in lessons[0].topics
     nxt = propose_next(ev, lessons, tested_mechanisms={}, now=NOW)
     assert nxt.mechanism_id in MECHANISMS
+    assert nxt.mechanism_id != "cryptocurrency"
+    assert nxt.hypothesis_delta.get("prior_domain") == "cryptocurrency"
+    assert "not a registered M1 mechanism" in nxt.rationale
+
+
+def test_propose_next_unknown_domain_does_not_reuse_llm_grid() -> None:
+    """Fail-closed: never attach library mechanism_id to LLM search_space."""
+    ev = CycleEvidence(
+        cycle_id="cyc_2",
+        hypothesis=_hyp(),
+        experiments=(),
+        summary=None,
+        mechanism_id="cryptocurrency",
+    )
+    # Force the candidate branch tags; unknown domains must still switch.
+    from enigma.schemas.common import ClaimLevel
+    from enigma.schemas.knowledge import Lesson
+
+    fake = Lesson(
+        id="les_fake",
+        statement="passed",
+        topics=("candidate", "cryptocurrency"),
+        derived_from_ids=("hyp_llm",),
+        outcome="success",
+        claim_level=ClaimLevel.L2_HISTORICAL,
+        created_by=AgentRole.META_LEARNING,
+        created_at=NOW,
+    )
+    nxt = propose_next(ev, [fake], tested_mechanisms={}, now=NOW)
+    assert nxt.mechanism_id in MECHANISMS
+    assert nxt.hypothesis_delta["param_grid"] == {
+        k: list(v) for k, v in MECHANISMS[nxt.mechanism_id].param_grid.items()
+    }

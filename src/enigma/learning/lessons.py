@@ -142,6 +142,15 @@ def derive_lessons(ev: CycleEvidence, now: UtcDatetime) -> list[Lesson]:
     return lessons
 
 
+def _least_tested_mechanism(
+    tested_mechanisms: dict[str, int], *, exclude: str | None = None
+) -> str:
+    untested = [m for m in MECHANISMS if tested_mechanisms.get(m, 0) == 0 and m != exclude]
+    if untested:
+        return untested[0]
+    return min(MECHANISMS, key=lambda m: (tested_mechanisms.get(m, 0), m))
+
+
 def propose_next(
     ev: CycleEvidence,
     lessons: Sequence[Lesson],
@@ -153,18 +162,33 @@ def propose_next(
     known = MECHANISMS.get(ev.mechanism_id)
     grid = {k: list(v) for k, v in ev.hypothesis.search_space.items()}
     delta: dict[str, object]
-    if "candidate" in tags:
-        mechanism_id = ev.mechanism_id if known is not None else next(iter(MECHANISMS))
+    # Unknown LLM domains (e.g. fam_cryptocurrency → cryptocurrency) are not in
+    # MECHANISMS. Never invent strategy params for them: only label lessons with
+    # hypothesis text, and route next trials to a registered library mechanism.
+    if known is None:
+        mechanism_id = _least_tested_mechanism(tested_mechanisms, exclude=ev.mechanism_id)
+        delta = {
+            "mechanism": mechanism_id,
+            "param_grid": {k: list(v) for k, v in MECHANISMS[mechanism_id].param_grid.items()},
+            "prior_domain": ev.mechanism_id,
+        }
+        rationale = (
+            f"Domain {ev.mechanism_id!r} is not a registered M1 mechanism "
+            f"({mech_name}); switch to least-tested library mechanism "
+            f"{MECHANISMS[mechanism_id].name}."
+        )
+    elif "candidate" in tags:
+        mechanism_id = ev.mechanism_id
         delta = {"param_grid": grid, "extend": "robustness: later data and second venue"}
         rationale = "Validated under the slice protocol; test robustness before any paper step."
-    elif "cost_fragility" in tags and known is not None:
+    elif "cost_fragility" in tags:
         mechanism_id = ev.mechanism_id
         delta = {"param_grid": _slower(grid)}
         rationale = (
             "Gross edge was eroded by costs; re-test with slower signals (longer "
             "lookbacks, higher entry thresholds) to cut turnover."
         )
-    elif ("overfit" in tags or "multiple_testing" in tags) and known is not None:
+    elif "overfit" in tags or "multiple_testing" in tags:
         mechanism_id = ev.mechanism_id
         delta = {"param_grid": {k: [v[len(v) // 2]] for k, v in grid.items()}}
         rationale = (
@@ -172,14 +196,7 @@ def propose_next(
             "re-test a single pre-registered central parameter set to cut trials."
         )
     else:
-        untested = [
-            m for m in MECHANISMS if tested_mechanisms.get(m, 0) == 0 and m != ev.mechanism_id
-        ]
-        mechanism_id = (
-            untested[0]
-            if untested
-            else min(MECHANISMS, key=lambda m: (tested_mechanisms.get(m, 0), m))
-        )
+        mechanism_id = _least_tested_mechanism(tested_mechanisms, exclude=ev.mechanism_id)
         delta = {
             "mechanism": mechanism_id,
             "param_grid": {k: list(v) for k, v in MECHANISMS[mechanism_id].param_grid.items()},
