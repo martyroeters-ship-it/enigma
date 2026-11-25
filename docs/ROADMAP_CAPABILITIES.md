@@ -1,4 +1,4 @@
-# Capability roadmap: hybrid ML, narrative, calibration, postmortems, prediction markets
+# Capability roadmap: hybrid ML, narrative, calibration, postmortems, prediction markets, Jev decisions
 
 **Status:** Scheduled after audit (2026-11-25, Europe/Istanbul)  
 **Constraint:** Does **not** change active M2 acceptance criteria. Independent validation, deterministic risk, expenditure limits, and plane isolation stay as hard gates.
@@ -16,6 +16,7 @@ This document audits what Enigma already has, names the gaps, and schedules work
 | **Probability calibration** | Decision provenance + confidence fields on some paths; validation PSR/DSR (related, not the same); cost-model calibration called out as a microstructure KPI in specs | No durable forecast ledger; no Brier / log loss / reliability diagrams against realized outcomes; no systematic over/under-confidence detection for agents or strategies |
 | **Decision postmortems** | Task `Reflection`, cycle lessons, abort lessons (L1), `ImprovementProposal` FSM; Learning Architecture requires propose → **independent** evaluate → adopt/rollback; M2 learning workstream targets `OutcomeRecord` / meta guidance / improvement experiments | Weak explicit split of **method error vs sampling variance**; postmortems not yet mandatory for every research/trading decision class; adoption still thin vs the full LEARNING_ARCHITECTURE cycle |
 | **Prediction market intelligence** | Nothing implemented | No Polymarket/Metaculus/etc. adapter; no research-only evaluation design; trading those venues correctly deferred |
+| **Structured decision provider (Jev)** | Chat `ModelGateway` + `StructuredLLM`; CIO deterministic priorizer; assessment in `docs/technology/jev-typesafe-assessment.md` | No provider-agnostic `DecisionProvider`; no M3-scale labeled eval vs heuristics/local/frontier LLMs; Jev not wired |
 
 Specs already on the shelf (reuse, don’t rewrite):  
 `QUANTITATIVE_METHODOLOGY.md` §7–8, `TECHNOLOGY_STACK.md` (LightGBM/PyTorch deferred), `LEARNING_ARCHITECTURE.md`, `VALIDATION_PROTOCOL.md` (leakage), `strategy/leakage.py`, abort/lesson paths.
@@ -36,7 +37,7 @@ Specs already on the shelf (reuse, don’t rewrite):
 
 ```text
 Now ── M2 (in flight) ──┬── M2.1 calibration + postmortem completion
-                        ├── M3 hybrid ML + narrative ingest (foundations)
+                        ├── M3 hybrid ML + narrative foundations + DecisionProvider/Jev eval
                         ├── M4 narrative↔market studies + PM research feeds
                         └── Later: PM trading domain (separate charter)
 ```
@@ -46,8 +47,9 @@ Now ── M2 (in flight) ──┬── M2.1 calibration + postmortem completi
 1. **Probability calibration (M2.1)** — cheap, unlocks honest agent/strategy uncertainty; builds on existing decision records.  
 2. **Decision postmortems (M2.1)** — completes institutional learning already half-built; required so “improvements” stay evidence-based.  
 3. **Hybrid ML (M3)** — high value only after M2 codegen + leakage harness + baselines exist; sandbox/library policy is a hard dependency.  
-4. **Narrative intelligence (M3 foundations → M4 studies)** — high long-run value; needs dataset registry + PIT text store first.  
-5. **Prediction market intelligence (M4 research-only → later trading)** — supplementary signal; trading is a separate product risk domain.
+4. **DecisionProvider + official TypeSafe Jev (M3 deliverable)** — structured decisions for high-volume classification/ranking/routing; integrate only if pre-registered thresholds are met.  
+5. **Narrative intelligence (M3 foundations → M4 studies)** — high long-run value; needs dataset registry + PIT text store first; Jev may score narrative relevance once feeds exist.  
+6. **Prediction market intelligence (M4 research-only → later trading)** — supplementary signal; trading is a separate product risk domain.
 
 ---
 
@@ -83,7 +85,48 @@ Now ── M2 (in flight) ──┬── M2.1 calibration + postmortem completi
 
 **Acceptance:** On the M1/M2 real-run history, postmortems label at least one method error (e.g. package-id collision, CPU-in-repro) vs variance-only validation FAILs; a proposed fix cannot flip to “adopted” without the independent benchmark harness.
 
-### 4.3 Hybrid quantitative intelligence — **M3**
+### 4.3 Structured decisions: DecisionProvider + TypeSafe Jev — **M3 deliverable**
+
+**Goal:** Add a provider-agnostic `DecisionProvider` beside the LLM gateway, benchmark official
+TypeSafe Jev against deterministic heuristics, local models, and conventional LLMs, and integrate
+Jev into operations **only** if it clears pre-registered thresholds with measurable gains.
+
+**Prior art (do not redo):** [docs/technology/jev-typesafe-assessment.md](./technology/jev-typesafe-assessment.md)
+— API shape, pricing, lookalike warning (`jevai.net`), gateway design sketch, and small local baselines.
+
+**Hard rules**
+
+- Endpoints: **`https://api.typesafe.ai` only** (`TYPESAFE_API_KEY`). Never `jevai.net` or resellers.  
+- Jev **must not** override independent validation, deterministic risk, budget reservation/enforcement, or the kill switch (import-linter + tool contracts).  
+- Does **not** block or interrupt M2; no M2 acceptance change.  
+- Pin versioned model ids in production routes (`jev-1.14.0` etc.); do not rely on moving aliases.
+
+**Build**
+
+1. **`DecisionProvider` protocol** (alongside `ModelGateway` / `StructuredLLM`, not forced into chat completions):
+   `decide(state, questions, *, model, budget, actor, task_id) -> DecisionResult` with choice / score / noul.  
+   Implementations: `DeterministicDecisionProvider`, `LlmDecisionProvider` (schema via StructuredLLM),
+   `TypeSafeDecisionProvider` (`POST /v1/systemone`).  
+2. **Spend path:** same atomic budget ledger as LLM calls; verified pricing; provenance on `AgentDecision`.  
+3. **Labeled evaluation set** (≥200 items, stratified; target ≥500 when feasible) covering:
+   - classification; anomaly categorization; research-relevance scoring;
+   - opportunity ranking; agent routing; high-volume narrative relevance/triage.  
+4. **Baselines (required competitors):** deterministic heuristics; local Ollama; ≥1 conventional LLM when keys exist; Jev when `TYPESAFE_API_KEY` is authorized.  
+5. **Metrics:** accuracy / macro-F1; probability calibration (Brier, log loss, ECE); latency; throughput; reliability (error/timeout rate); **cost per correct decision**.  
+6. **Pre-register acceptance thresholds** in `registries/models/jev_m3_acceptance.yaml` *before* running the scored eval (freeze the label set hash). Suggested starting bars (tune and lock in that file):
+   - macro-F1 ≥ best non-Jev baseline on the frozen set;
+   - ECE no worse than the best calibrated baseline;
+   - p50 latency ≤ 500 ms for ≤8 questions on ≤4k-token state *or* documented cost/latency trade accepted by CIO;
+   - cost per correct decision ≤ 50% of the conventional LLM baseline on the same fan-out;
+   - reliability ≥ 99% success on retries-included eval calls.  
+7. **Integration iff thresholds met:** wire into CIO ranking assists, intelligence triage, anomaly labels, meta failure-class hints — never validation/risk/budget.  
+8. **Institutional memory:** store `BenchmarkReport` + ADR adopt/reject; lessons from the eval; dashboard visibility under Models.
+
+**Dependencies:** M2 gateway provenance + budgets; M2.1 calibration ledger (preferred for scoring Jev probabilities); narrative feed samples helpful but not required for the first stratified set.
+
+**Acceptance (M3):** (a) `DecisionProvider` + three implementations land with tests; (b) frozen eval + pre-registered thresholds committed; (c) full benchmark matrix executed and archived; (d) adopt **or** explicit reject ADR with numbers; (e) if adopted, deny-list contracts prove validation/risk/budget cannot call Jev.
+
+### 4.4 Hybrid quantitative intelligence — **M3**
 
 **Goal:** Evidence-driven discovery/training/benchmarking of statistical and ML models (including XGBoost, LightGBM, Bayesian methods, HMMs, ensembles) without predetermined model-class favoritism.
 
@@ -101,7 +144,7 @@ Now ── M2 (in flight) ──┬── M2.1 calibration + postmortem completi
 
 **Acceptance:** At least two model classes compete on one registered hypothesis; winner selected by validation metrics + baseline dominance, not by prior preference; failing class leaves FailureConditions.
 
-### 4.4 Narrative intelligence — **M3 foundations, M4 studies**
+### 4.5 Narrative intelligence — **M3 foundations, M4 studies**
 
 **Goal:** Ingest timestamped public narrative sources and test measurable links to expectations, positioning, and subsequent returns — without leakage.
 
@@ -120,10 +163,10 @@ Now ── M2 (in flight) ──┬── M2.1 calibration + postmortem completi
 
 **Reuse:** KnowledgeBase provenance; DataCatalog PIT patterns; no second “news database” outside versioned datasets.
 
-**Acceptance (M3):** End-to-end ingest of ≥1 real public feed into a PIT-safe feature column used in a dry research cycle.  
+**Acceptance (M3 foundations):** End-to-end ingest of ≥1 real public feed into a PIT-safe feature column used in a dry research cycle.  
 **Acceptance (M4):** One registered narrative hypothesis through full validation; leakage scramble test documented.
 
-### 4.5 Prediction market intelligence — **M4 research feed; later trading charter**
+### 4.6 Prediction market intelligence — **M4 research feed; later trading charter**
 
 **Goal:** Evaluate prediction markets as a **supplementary research input** for crypto/macro; do **not** conflate with trading those markets.
 
@@ -161,6 +204,7 @@ Now ── M2 (in flight) ──┬── M2.1 calibration + postmortem completi
 | CAP-CAL | Probability calibration | M2.1 | No |
 | CAP-PMORT | Decision postmortems | M2.1 | No |
 | CAP-HML | Hybrid ML / statistical models | M3 | No |
+| CAP-JEV | DecisionProvider + official TypeSafe Jev eval/integrate | M3 (**deliverable**) | No |
 | CAP-NAR | Narrative intelligence | M3 → M4 | No |
 | CAP-PMR | Prediction market research feeds | M4 | No |
 | CAP-PMT | Prediction market trading | Later / separate | No |

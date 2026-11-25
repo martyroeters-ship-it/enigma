@@ -1,9 +1,9 @@
 # Technology assessment: Jev (TypeSafe AI) as a structured-decision provider
 
-**Status:** assessed, not adopted  
-**Date:** 2026-11-25 (Europe/Istanbul)  
+**Status:** assessed (M2); **scheduled as M3 deliverable CAP-JEV**  
+**Date:** 2026-11-25 (Europe/Istanbul); roadmap update same day  
 **Assessor:** Enigma implementation (M2 parallel investigation)  
-**Recommendation:** Do **not** integrate into the M2 critical path. Revisit after M2 with a TypeSafe early-access key and a labeled Enigma evaluation set. Prefer the official TypeSafe API only; treat `jevai.net` as unofficial.
+**Recommendation:** Do **not** integrate during M2. **M3 must** implement `DecisionProvider`, run the pre-thresholded benchmark vs heuristics/local/conventional LLMs, and adopt or reject with an ADR. Official TypeSafe API only; treat `jevai.net` as unofficial. See [ROADMAP_CAPABILITIES.md](../ROADMAP_CAPABILITIES.md) §4.3.
 
 ## 1. What was investigated
 
@@ -107,9 +107,12 @@ Wiring rules:
 
 Complexity cost: one new adapter + protocol (~small), not a gateway rewrite. Vendor lock-in risk is low if callers depend only on `DecisionProvider` and can fall back to deterministic/`StructuredLLM`.
 
-## 7. Adoption criteria (pre-declared)
+## 7. Adoption criteria (pre-declared; lock in M3 before scoring)
 
-Adopt a TypeSafe spike into main **only if** all of the following hold on a frozen Enigma label set (≥100 items spanning routing, anomaly class, evidence support, abort classification):
+The M3 eval freezes thresholds in `registries/models/jev_m3_acceptance.yaml` before scoring.
+Minimum bar from this assessment (may only be tightened, not silently loosened):
+
+Adopt TypeSafe Jev into operational routing **only if** all of the following hold on a frozen Enigma label set (≥200 items; target ≥500) spanning classification, anomaly detection, research relevance, opportunity ranking, agent routing, and narrative triage:
 
 1. **Quality:** macro-F1 ≥ local `qwen2.5:7b-instruct` **and** ≥ deterministic baseline on the subset that heuristics cover, **or** clear win on the subset heuristics miss.
 2. **Calibration:** expected calibration error competitive with (not worse than) local LLM softmax proxies on the same labels.
@@ -120,9 +123,9 @@ Adopt a TypeSafe spike into main **only if** all of the following hold on a froz
 
 Until then: **no dependency, no credentials in CI, no replacement of M2 generative work.**
 
-## 8. Relation to M2 priorities
+## 8. Relation to M2 / M3 priorities
 
-This investigation does **not** change M2 sequencing. Parallel workers continue on atomic budgets, autonomous hypotheses, adaptive intelligence, datasets, holdout integrity, and meta-learning. Jev is a candidate *accelerator* for high-volume typed decisions after those foundations land.
+This investigation does **not** change M2 sequencing or acceptance. Jev work is an **explicit M3 deliverable** (CAP-JEV): provider-agnostic interface, large labeled eval, thresholded adopt/reject — not an optional afterthought. M2 workers continue uninterrupted.
 
 ## 9. Credentials (if a spike is authorized later)
 
