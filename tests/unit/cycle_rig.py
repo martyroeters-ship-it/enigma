@@ -51,6 +51,7 @@ COST = CostModel(
     impact_bps_per_million=2,
     capacity_notional_usd=5e6,
 )
+RESEARCH_CUTOFF = datetime(2024, 6, 1, tzinfo=UTC)
 CLAIMS = (
     "Funding rates in perpetual futures reflect crowding of leveraged longs; extreme positive "
     "funding precedes reversal as crowded positioning unwinds.",
@@ -311,6 +312,7 @@ class Rig:
             self.fsm,
             self.contracts,
             HoldoutPolicy.load(ROOT / "registries/validation/holdout_policy.yaml"),
+            lambda symbols: RESEARCH_CUTOFF,
             clock,
         )
 

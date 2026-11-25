@@ -7,8 +7,9 @@ delegation is idempotent, and every step is checkpointed before the next begins.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -34,16 +35,11 @@ CIO = AgentRole.CIO
 
 @dataclass(frozen=True)
 class HoldoutPolicy:
-    """Sealed-holdout boundary owned by the control plane (registries/validation)."""
+    """Research data window start. The holdout boundary itself is owned by the validation plane:
+    `ValidationService.seal_holdout` seals it once per symbol set and returns only the research
+    cutoff, which the driver receives through `research_cutoff`."""
 
     data_start: date
-    holdout_start: date
-    embargo_days: int
-
-    @property
-    def research_end(self) -> datetime:
-        end = self.holdout_start - timedelta(days=self.embargo_days)
-        return datetime(end.year, end.month, end.day, tzinfo=UTC)
 
     @property
     def research_start(self) -> datetime:
@@ -53,11 +49,10 @@ class HoldoutPolicy:
     @classmethod
     def load(cls, path: Path) -> HoldoutPolicy:
         raw = yaml.safe_load(path.read_text("utf-8"))
-        return cls(
-            data_start=date.fromisoformat(str(raw["data_start"])),
-            holdout_start=date.fromisoformat(str(raw["holdout_start"])),
-            embargo_days=int(raw["embargo_days"]),
-        )
+        return cls(data_start=date.fromisoformat(str(raw["data_start"])))
+
+
+ResearchCutoff = Callable[[Sequence[str]], datetime]
 
 
 class CycleDriver:
@@ -68,6 +63,7 @@ class CycleDriver:
         fsm: StateMachineStore,
         contracts: ContractRegistry,
         policy: HoldoutPolicy,
+        research_cutoff: ResearchCutoff,
         clock: Clock,
     ) -> None:
         self.stores = stores
@@ -76,6 +72,7 @@ class CycleDriver:
         self.contracts = contracts
         self.cmap = {c.role: c for c in contracts.all()}
         self.policy = policy
+        self.research_cutoff = research_cutoff
         self.clock = clock
 
     # ---------------------------------------------------------------- intake (step 1)
@@ -99,14 +96,18 @@ class CycleDriver:
             created_at=now,
         )
         self.stores.documents.put(objective, recorded_by=CIO.value)
+        symbols = sorted({i.symbol for i in instruments})
+        research_end = self.research_cutoff(symbols)
+        if research_end <= self.policy.research_start:
+            raise ValueError("research cutoff precedes the research data start")
         cycle_id = new_id("cyc")
         self.fsm.create(RESEARCH_CYCLE, cycle_id, CIO.value, reason_code="objective_received")
         state = {
             "objective_id": objective.id,
             "proposal_id": proposal_id,
-            "symbols": sorted({i.symbol for i in instruments}),
+            "symbols": symbols,
             "research_start": self.policy.research_start.isoformat(),
-            "research_end": self.policy.research_end.isoformat(),
+            "research_end": research_end.isoformat(),
             "started_at": now.isoformat(),
         }
         self.stores.checkpoints.save(cycle_id, WORKFLOW, "OBJECTIVE_RECEIVED", state, "running")

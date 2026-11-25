@@ -16,6 +16,12 @@ holdout data out of reach of the research plane.
   `$ENIGMA_VALIDATION_DIR` in a **separate SQLite database and directory**, opened only by the
   validation service. The research plane receives only `RedactedValidationSummary`.
   `PlaneView` blocks research-plane reads of `ValidationReport` at the repository layer.
+- **Holdout boundary authority:** the validation service seals the boundary once per symbol set
+  (G02 `holdout_fraction` of the validation plane's own data range, minus the embargo) and
+  persists a `HoldoutManifest` with the holdout content hash. The CIO obtains only the research
+  cutoff from `seal_holdout`; research acquisition is capped at that cutoff. No second boundary
+  is configured anywhere else (`registries/validation/holdout_policy.yaml` holds only the
+  research data start).
 - Docker Compose with per-plane networks is deferred until a host with Docker is available;
   per-process network isolation for strategy code is provided by ADR-016 instead.
 

@@ -46,7 +46,9 @@ def derive_lessons(ev: CycleEvidence, now: UtcDatetime) -> list[Lesson]:
     refs = (ev.hypothesis.id, *(e.id for e in ev.experiments))
     if ev.summary is not None:
         refs = (*refs, ev.summary.report_id)
-    failed = set(ev.summary.failed_gate_names) if ev.summary else set()
+    failed = (
+        {name.split(":", 1)[-1] for name in ev.summary.failed_gate_names} if ev.summary else set()
+    )
     passed = ev.summary is not None and ev.summary.overall is GateOutcome.PASS
     outcome = "success" if passed else "failure"
     lessons: list[Lesson] = []
@@ -180,7 +182,7 @@ def propose_next(
         hypothesis_delta=delta,
         rationale=rationale,
         lesson_ids=tuple(les.id for les in lessons),
-        validation_summary_id=ev.summary.report_id if ev.summary else None,
+        validation_summary_id=ev.summary.id if ev.summary else None,
         proposed_by=AgentRole.META_LEARNING,
         created_at=now,
     )
