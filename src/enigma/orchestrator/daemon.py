@@ -6,6 +6,7 @@ import os
 import signal
 import socket
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -16,11 +17,21 @@ import yaml
 
 from enigma.agents.base import TaskRequest, delegate
 from enigma.api.readmodels import HEARTBEAT_PREFIX, ReadModels
+from enigma.core.hashing import sha256_hex
 from enigma.core.logging import get_logger
 from enigma.fsm import RESEARCH_CYCLE
+from enigma.orchestrator.cio import (
+    Agenda,
+    Candidate,
+    ResearchPrioritizer,
+    ScoredCandidate,
+    allocate,
+)
 from enigma.orchestrator.institution import Institution
+from enigma.orchestrator.planning import build_inputs, proposal_candidates, read_record
 from enigma.schemas.common import AgentRole
 from enigma.schemas.cycle import NextExperimentProposal, ProposalState
+from enigma.schemas.governance import AgentDecision
 from enigma.schemas.research import ResearchObjective
 
 log = get_logger(__name__)
@@ -72,6 +83,7 @@ class Daemon:
         self.stop = threading.Event()
         self.worker_name = inst.worker.worker_id
         self._last_beat: datetime | None = None
+        self.guidance_penalty: Callable[[Candidate], tuple[float, tuple[str, ...]]] | None = None
 
     # ------------------------------------------------------------------ lifecycle
     def install_signal_handlers(self) -> None:
@@ -146,12 +158,21 @@ class Daemon:
         if self.inst.fsm.created_since(RESEARCH_CYCLE, since) >= self.schedule.max_cycles_per_day:
             return False
         docs = self.inst.stores.documents
-        pending = docs.list(
-            NextExperimentProposal, where={"state": ProposalState.PROPOSED.value}, limit=1
-        )
-        if not pending:
+        created_today = self.inst.fsm.created_since(RESEARCH_CYCLE, since)
+        candidates = proposal_candidates(self.inst.stores)
+        if not candidates:
             return False
-        proposal = pending[0]
+        inputs = build_inputs(
+            read_record(self.inst.stores),
+            remaining_budget=float(self.schedule.max_cycles_per_day - created_today),
+            guidance_penalty=self.guidance_penalty,
+        )
+        agenda = ResearchPrioritizer().rank(candidates, inputs)
+        chosen = allocate(agenda, capacity=1, technology_share=0.0)
+        self._record_cio_decision(agenda, chosen)
+        if not chosen or chosen[0].candidate.proposal_id is None:
+            return False
+        proposal = docs.require(NextExperimentProposal, chosen[0].candidate.proposal_id)
         parent = self.inst.stores.checkpoints.load(proposal.parent_cycle_id)
         if parent is None:
             return False
@@ -175,6 +196,36 @@ class Daemon:
             {"proposal_id": proposal.id, "parent_cycle_id": proposal.parent_cycle_id},
         )
         return True
+
+    def _record_cio_decision(self, agenda: Agenda, chosen: tuple[ScoredCandidate, ...]) -> None:
+        lines = [
+            f"{s.candidate.id} score={s.score:.3f} viable={s.viable} "
+            + " ".join(f"{k}={v:.2f}" for k, v in sorted(s.components.items()))
+            + (f" ({'; '.join(s.reasons)})" if s.reasons else "")
+            for s in agenda.ranked[:5]
+        ]
+        outcome = chosen[0].candidate.id if chosen else "none"
+        key = "|".join([outcome, *(s.candidate.id for s in agenda.ranked)])
+        self.inst.stores.documents.put(
+            AgentDecision(
+                id="dec_cio_" + sha256_hex(key + self.inst.clock.now().date().isoformat())[:22],
+                agent=CIO,
+                task_id=None,
+                decision_type="research_prioritization",
+                outcome=outcome,
+                reason_code="max_expected_value",
+                reasoning_summary=(
+                    f"Ranked {len(agenda.ranked)} candidate(s) by information gain, novelty, "
+                    "data readiness, agent reliability, cost and learned guidance:\n"
+                    + "\n".join(lines)
+                ),
+                input_refs=tuple(s.candidate.id for s in agenda.ranked),
+                output_refs=(outcome,) if chosen else (),
+                instructions_version="cio-prioritizer-1",
+                created_at=self.inst.clock.now(),
+            ),
+            recorded_by=CIO.value,
+        )
 
     def _schedule_tech_scan(self) -> bool:
         if not self.schedule.tech_scan_topics or self.schedule.tech_scan_interval_hours <= 0:
