@@ -52,6 +52,15 @@ class Source(StrictModel):
     retrieved_by: Actor
     retrieved_at: UtcDatetime
     query: str | None = Field(default=None, description="Query that surfaced this source")
+    raw_response_uri: str | None = Field(
+        default=None, description="Stored full HTTP response the record was parsed from"
+    )
+    raw_response_hash: Sha256 | None = Field(
+        default=None, description="sha256 of the full HTTP response bytes"
+    )
+    citation_count: int | None = Field(
+        default=None, ge=0, description="Provider-reported citation count at retrieval time"
+    )
 
 
 class Author(StrictModel):
@@ -139,6 +148,21 @@ class FailureCondition(StrictModel):
     subject_id: NonEmptyStr = Field(description="Package, experiment, or task that failed")
     gate_id: str | None = None
     created_by: Actor
+    created_at: UtcDatetime
+
+
+class ClaimPromotion(StrictModel):
+    """Append-only record of a claim-level change; the latest record is authoritative."""
+
+    id: NonEmptyStr
+    entity_id: NonEmptyStr
+    entity_kind: NonEmptyStr
+    from_level: ClaimLevel
+    to_level: ClaimLevel
+    actor: Actor
+    justification_ref: NonEmptyStr = Field(
+        description="Hypothesis (L1), Experiment (L2), or PASS ValidationReport (L3) id"
+    )
     created_at: UtcDatetime
 
 

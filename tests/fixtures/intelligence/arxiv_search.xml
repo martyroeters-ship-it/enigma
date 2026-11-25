@@ -1,0 +1,85 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/KT3VH6UuD/mpFz20xQ2LTU3cEvU</id>
+  <title>arXiv Query: search_query=all:perpetual AND all:futures AND all:funding AND all:rate&amp;id_list=&amp;start=0&amp;max_results=4</title>
+  <updated>2026-11-25T10:31:08Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=all:perpetual+AND+(all:futures+AND+(all:funding+AND+all:rate))&amp;start=0&amp;max_results=4&amp;id_list=" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>4</opensearch:itemsPerPage>
+  <opensearch:totalResults>9</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2506.08573v1</id>
+    <title>Designing funding rates for perpetual futures in cryptocurrency markets</title>
+    <updated>2025-06-10T08:42:32Z</updated>
+    <link href="https://arxiv.org/abs/2506.08573v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2506.08573v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>In cryptocurrency markets, a key challenge for perpetual future issuers is maintaining alignment between the perpetual future price and target value. This study addresses this challenge by exploring the relationship between funding rates and perpetual future prices. Our results demonstrate that by appropriately designing funding rates, the perpetual future price can remain aligned with the target value. We develop replicating portfolios for perpetual futures, offering issuers an effective method to hedge their positions. Additionally, we provide path-dependent funding rates as a practical alternative and investigate the difference between the original and path-dependent funding rates. To achieve these results, our study employs path-dependent infinite-horizon BSDEs in conjunction with arbitrage pricing theory. Our main results are obtained by establishing the existence and uniqueness of solutions to these BSDEs and analyzing the large-time behavior of these solutions.</summary>
+    <category term="q-fin.MF" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="q-fin.PR" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2025-06-10T08:42:32Z</published>
+    <arxiv:primary_category term="q-fin.MF"/>
+    <author>
+      <name>Jaehyun Kim</name>
+    </author>
+    <author>
+      <name>Hyungbin Park</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2212.06888v7</id>
+    <title>Fundamentals of Perpetual Futures</title>
+    <updated>2026-09-17T17:23:23Z</updated>
+    <link href="https://arxiv.org/abs/2212.06888v7" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2212.06888v7" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Perpetual futures are the most popular cryptocurrency derivatives. Perpetuals offer leveraged exposure to their underlying without rollover or direct ownership. Unlike fixed-maturity futures, perpetuals are not guaranteed to converge to the spot price. To minimize the gap between perpetual and spot prices, long investors periodically pay shorts a funding rate proportional to this difference. We derive no-arbitrage prices for perpetual futures in frictionless markets and bounds in markets with trading costs. Empirically, deviations from these prices in crypto are larger than in traditional currency markets, comove across currencies, and diminish over time. An implied arbitrage strategy yields high Sharpe ratios.</summary>
+    <category term="q-fin.PR" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="q-fin.GN" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2022-12-13T20:19:14Z</published>
+    <arxiv:primary_category term="q-fin.PR"/>
+    <author>
+      <name>Songrun He</name>
+    </author>
+    <author>
+      <name>Asaf Manela</name>
+    </author>
+    <author>
+      <name>Omri Ross</name>
+    </author>
+    <author>
+      <name>Victor von Wachter</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.06405v1</id>
+    <title>Funding-Aware Optimal Market Making for Perpetual DEXs</title>
+    <updated>2026-05-07T15:13:00Z</updated>
+    <link href="https://arxiv.org/abs/2605.06405v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.06405v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>This paper studies optimal liquidity provision for perpetual contracts when the funding rate is a stochastic state variable. The core extension to classical market making is the coupling between inventory and funding payments: inventory creates both mark-to-market exposure and a state-dependent funding cash flow. A reduced inventory-funding control problem is formulated, solved with a monotone finite-difference Hamilton-Jacobi-Bellman scheme, and bid and ask quote offsets are recovered from discrete inventory value differences. Funding is calibrated on Hyperliquid ETH, BTC, and SOL perpetual data. Gaussian OU funding is retained as a tractable diffusion baseline, while OU-plus-jump diagnostics document the heavy-tailed funding innovations that should enter a future extension. In 100-seed holdout simulations under two official-fill proxy calibrations, the funding-aware HJB improves mean ETH/BTC performance while lowering inventory RMS relative to classical Avellaneda-Stoikov. SOL gains are positive versus unscaled AS but are not a Pareto improvement once a risk-scaled AS diagnostic is included.</summary>
+    <category term="q-fin.MF" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-07T15:13:00Z</published>
+    <arxiv:comment>21 pages</arxiv:comment>
+    <arxiv:primary_category term="q-fin.MF"/>
+    <author>
+      <name>Nam Anh Le</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/1912.03270v1</id>
+    <title>BitMEX Funding Correlation with Bitcoin Exchange Rate</title>
+    <updated>2019-11-26T09:35:31Z</updated>
+    <link href="https://arxiv.org/abs/1912.03270v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/1912.03270v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>This paper examines the relationship between Inverse Perpetual Swap contracts, a Bitcoin derivative akin to futures and the margin funding interest rates levied on BitMEX. This paper proves the Heteroskedastic nature of funding rates and goes onto establish a causal relationship between the funding rates and the Bitcoin inverse Perpetual swap contracts based on Granger causality. The paper further dwells into developing a predictive model for funding rates using best-fitted GARCH models. Implications of the results are presented, and funding rates as a predictive tool for gauging the market trend is discussed.</summary>
+    <category term="q-fin.ST" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2019-11-26T09:35:31Z</published>
+    <arxiv:comment>9 pages,5 figures</arxiv:comment>
+    <arxiv:primary_category term="q-fin.ST"/>
+    <author>
+      <name>Sai Srikar Nimmagadda</name>
+    </author>
+    <author>
+      <name>Pawan Sasanka Ammanamanchi</name>
+    </author>
+  </entry>
+</feed>
