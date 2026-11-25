@@ -24,6 +24,16 @@ def test_protocol_loads_with_pinned_hash() -> None:
     assert hashlib.sha256(DEFAULT_PROTOCOL_PATH.read_bytes()).hexdigest() == PROTOCOL_SHA256
 
 
+def test_protocol_1_0_0_promotes_former_informative_gates() -> None:
+    protocol = load_protocol(version="1.0.0")
+    assert protocol.version == "1.0.0"
+    assert "G04" in protocol.required_gates
+    assert "G08" in protocol.required_gates
+    assert "G15" in protocol.required_gates
+    assert protocol.gates["G04"]["n_folds"] == 6
+    assert protocol.gates["G15"]["benchmarks"] == ["flat", "buy_and_hold_perp"]
+
+
 def test_protocol_edit_fails_closed(tmp_path: Path) -> None:
     edited = tmp_path / "protocol.yaml"
     edited.write_text(

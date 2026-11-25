@@ -542,25 +542,36 @@ class ValidationService:
         ppy = self.protocol.periods_per_year
         candidate_sharpe = holdout.metrics["net_sharpe"]
 
-        folds = np.array_split(full.net_returns, int(gate_lib.INFORMATIVE_GATES["G04"]["n_folds"]))
-        g04 = gate_lib.g04_walk_forward([sharpe_ratio(f, ppy) for f in folds if f.size > 1])
+        def gate_cfg(gate_id: str) -> dict[str, Any]:
+            return self.protocol.gates.get(gate_id) or gate_lib.INFORMATIVE_GATES[gate_id]
 
-        cfg08 = gate_lib.INFORMATIVE_GATES["G08"]
+        cfg04 = gate_cfg("G04")
+        folds = np.array_split(full.net_returns, int(cfg04["n_folds"]))
+        g04 = gate_lib.g04_walk_forward(
+            [sharpe_ratio(f, ppy) for f in folds if f.size > 1], cfg=cfg04
+        )
+
+        cfg08 = gate_cfg("G08")
         matrix_cols = [r for r in trials.values() if r is not None]
         if len(matrix_cols) < 2:
-            g08 = gate_lib.g08_pbo(None, "fewer than two recomputable strategies in the family")
+            g08 = gate_lib.g08_pbo(
+                None, "fewer than two recomputable strategies in the family", cfg=cfg08
+            )
         else:
             try:
                 g08 = gate_lib.g08_pbo(
-                    cscv_pbo(np.column_stack(matrix_cols), int(cfg08["n_splits"]))
+                    cscv_pbo(np.column_stack(matrix_cols), int(cfg08["n_splits"])),
+                    cfg=cfg08,
                 )
             except ValueError as exc:
-                g08 = gate_lib.g08_pbo(None, str(exc))
+                g08 = gate_lib.g08_pbo(None, str(exc), cfg=cfg08)
 
-        g09 = gate_lib.g09_parameter_sensitivity(candidate_sharpe, self._neighbours(x))
-        g10 = gate_lib.g10_regime_stress(self._regimes(x, holdout))
+        g09 = gate_lib.g09_parameter_sensitivity(
+            candidate_sharpe, self._neighbours(x), cfg=gate_cfg("G09")
+        )
+        g10 = gate_lib.g10_regime_stress(self._regimes(x, holdout), cfg=gate_cfg("G10"))
 
-        cfg11 = gate_lib.INFORMATIVE_GATES["G11"]
+        cfg11 = gate_cfg("G11")
         ci = stationary_bootstrap_ci(
             holdout.net_returns,
             lambda r: sharpe_ratio(r, ppy),
@@ -569,7 +580,7 @@ class ValidationService:
             alpha=float(cfg11["alpha"]),
             seed=x.seed,
         )
-        g11 = gate_lib.g11_bootstrap(ci, x.seed)
+        g11 = gate_lib.g11_bootstrap(ci, x.seed, cfg=cfg11)
 
         n_by_symbol = {sym: x.frame.filter(pl.col("symbol") == sym).height for sym in x.symbols}
         buy_hold = self.engine.run(
@@ -580,12 +591,16 @@ class ValidationService:
             notional_usd=self.notional_usd,
         ).window(x.holdout_start_ns, None)
         g15 = gate_lib.g15_benchmark(
-            candidate_sharpe, {"flat": 0.0, "buy_and_hold_perp": buy_hold.metrics["net_sharpe"]}
+            candidate_sharpe,
+            {"flat": 0.0, "buy_and_hold_perp": buy_hold.metrics["net_sharpe"]},
+            cfg=gate_cfg("G15"),
         )
         return [g04, g08, g09, g10, g11, g15]
 
     def _neighbours(self, x: _Inputs) -> dict[str, float | None]:
-        step = float(gate_lib.INFORMATIVE_GATES["G09"]["relative_step"])
+        step = float(
+            (self.protocol.gates.get("G09") or gate_lib.INFORMATIVE_GATES["G09"])["relative_step"]
+        )
         param_sets: dict[str, dict[str, ParamValue]] = {}
         labels: dict[str, str] = {}
         for key in sorted(x.package.params):

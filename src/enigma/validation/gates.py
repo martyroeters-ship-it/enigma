@@ -309,36 +309,47 @@ def _informative(gate_id: str) -> dict[str, Any]:
     return {**INFORMATIVE_GATES[gate_id], "informative": True}
 
 
-def g04_walk_forward(fold_sharpes: Sequence[float]) -> GateResult:
-    cfg = _informative("G04")
+def _cfg(gate_id: str, override: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    base = _informative(gate_id)
+    if override is None:
+        return base
+    return {**base, **dict(override), "informative": base.get("informative", True)}
+
+
+def g04_walk_forward(
+    fold_sharpes: Sequence[float], cfg: Mapping[str, Any] | None = None
+) -> GateResult:
+    conf = _cfg("G04", cfg)
     positive = sum(1 for s in fold_sharpes if s > 0)
     fraction = positive / len(fold_sharpes) if fold_sharpes else 0.0
-    threshold = float(cfg["min_positive_fraction"])
+    threshold = float(conf["min_positive_fraction"])
     return make_gate(
         "G04",
-        cfg["name"],
+        conf["name"],
         bool(fold_sharpes) and fraction >= threshold,
         fraction,
         threshold,
         ">=",
-        cfg,
+        conf,
         {"fold_net_sharpes": list(fold_sharpes)},
     )
 
 
-def g08_pbo(pbo: PBOResult | None, reason: str = "") -> GateResult:
-    cfg = _informative("G08")
+def g08_pbo(
+    pbo: PBOResult | None, reason: str = "", cfg: Mapping[str, Any] | None = None
+) -> GateResult:
+    conf = _cfg("G08", cfg)
     if pbo is None:
-        return failed_gate("G08", cfg["name"], reason or "PBO not computable", cfg)
-    threshold = float(cfg["max_pbo"])
+        return failed_gate("G08", conf["name"], reason or "PBO not computable", conf)
+    threshold = float(conf["max_pbo"])
     return make_gate(
         "G08",
-        cfg["name"],
+        conf["name"],
         compare(pbo.pbo, threshold, "<"),
         pbo.pbo,
         threshold,
         "<",
-        cfg,
+        conf,
         {
             "n_strategies": pbo.n_strategies,
             "n_combinations": pbo.n_combinations,
@@ -348,72 +359,82 @@ def g08_pbo(pbo: PBOResult | None, reason: str = "") -> GateResult:
 
 
 def g09_parameter_sensitivity(
-    candidate_sharpe: float, neighbours: Mapping[str, float | None]
+    candidate_sharpe: float,
+    neighbours: Mapping[str, float | None],
+    cfg: Mapping[str, Any] | None = None,
 ) -> GateResult:
-    cfg = _informative("G09")
+    conf = _cfg("G09", cfg)
     if not neighbours:
-        return failed_gate("G09", cfg["name"], "no numeric parameters to perturb", cfg)
+        return failed_gate("G09", conf["name"], "no numeric parameters to perturb", conf)
     values = list(neighbours.values())
     if any(v is None for v in values):
         worst: float | None = None
     else:
         worst = min(v for v in values if v is not None)
-    threshold = float(cfg["min_ratio"]) * max(candidate_sharpe, 0.0)
+    threshold = float(conf["min_ratio"]) * max(candidate_sharpe, 0.0)
     return make_gate(
         "G09",
-        cfg["name"],
+        conf["name"],
         candidate_sharpe > 0 and compare(worst, threshold, ">="),
         worst,
         threshold,
         ">=",
-        cfg,
+        conf,
         {"candidate_holdout_net_sharpe": candidate_sharpe, "neighbours": dict(neighbours)},
     )
 
 
-def g10_regime_stress(regimes: Mapping[str, Mapping[str, float]]) -> GateResult:
-    cfg = _informative("G10")
+def g10_regime_stress(
+    regimes: Mapping[str, Mapping[str, float]], cfg: Mapping[str, Any] | None = None
+) -> GateResult:
+    conf = _cfg("G10", cfg)
     eligible = {
-        k: v["net_sharpe"] for k, v in regimes.items() if v["bars"] >= cfg["min_regime_bars"]
+        k: v["net_sharpe"] for k, v in regimes.items() if v["bars"] >= conf["min_regime_bars"]
     }
     worst = min(eligible.values()) if eligible else None
     return make_gate(
         "G10",
-        cfg["name"],
+        conf["name"],
         len(eligible) == len(regimes) and compare(worst, 0.0, ">"),
         worst,
         0.0,
         ">",
-        cfg,
+        conf,
         {"regimes": {k: dict(v) for k, v in regimes.items()}},
     )
 
 
-def g11_bootstrap(ci: tuple[float, float], seed: int) -> GateResult:
-    cfg = _informative("G11")
+def g11_bootstrap(
+    ci: tuple[float, float], seed: int, cfg: Mapping[str, Any] | None = None
+) -> GateResult:
+    conf = _cfg("G11", cfg)
     return make_gate(
         "G11",
-        cfg["name"],
+        conf["name"],
         compare(ci[0], 0.0, ">"),
         ci[0],
         0.0,
         ">",
-        {**cfg, "seed": seed},
+        {**conf, "seed": seed},
         {"net_sharpe_ci": list(ci)},
     )
 
 
-def g15_benchmark(candidate_sharpe: float, benchmarks: Mapping[str, float]) -> GateResult:
-    cfg = _informative("G15")
+def g15_benchmark(
+    candidate_sharpe: float,
+    benchmarks: Mapping[str, float],
+    cfg: Mapping[str, Any] | None = None,
+) -> GateResult:
+    conf = _cfg("G15", cfg)
     best = max(benchmarks.values())
     margin = candidate_sharpe - best
     return make_gate(
         "G15",
-        cfg["name"],
+        conf["name"],
         compare(margin, 0.0, ">"),
         margin,
         0.0,
         ">",
-        cfg,
+        conf,
         {"candidate_net_sharpe": candidate_sharpe, "benchmark_net_sharpes": dict(benchmarks)},
     )
