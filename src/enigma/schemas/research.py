@@ -137,6 +137,9 @@ class StrategyPackage(StrictModel):
     content_hash: Sha256
     interface_version: NonEmptyStr = "1.0.0"
     cost_model: CostModel
+    label_horizon_bars: int = Field(
+        default=1, ge=1, description="Bars the signal targets; sets the G02 embargo"
+    )
     sandbox_profile: NonEmptyStr = "default"
     created_by: Actor
     created_at: UtcDatetime
