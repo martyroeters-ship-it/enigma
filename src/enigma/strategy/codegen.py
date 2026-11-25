@@ -69,15 +69,13 @@ def _sandbox_smoke(
     n = 64
     rng = np.random.default_rng(0)
     base = rng.normal(size=n)
-    arrays = {
+    arrays: dict[str, np.ndarray] = {
         col: (base.copy() if "fund" in col or "rate" in col else 100 + np.cumsum(base * 0.01))
         for col in required_columns
     }
-    arrays.setdefault("ts", np.arange(n, dtype=np.int64) * 3_600_000_000_000)
+    arrays["ts"] = np.arange(n, dtype=np.int64) * 3_600_000_000_000
     data = {
-        "s0": {
-            k: np.asarray(v, dtype=float if k != "ts" else np.int64) for k, v in arrays.items()
-        }
+        "s0": {k: np.asarray(v, dtype=np.int64 if k == "ts" else float) for k, v in arrays.items()}
     }
     try:
         result = SandboxRunner().run(package, data, [SandboxJob("smoke", "s0", dict(params))])
