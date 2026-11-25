@@ -6,7 +6,9 @@ import pytest
 from pydantic import ValidationError
 
 from enigma.core.hashing import sha256_of
+from enigma.gateway.benchmark import ModelSummary
 from enigma.learning.adoption import may_roll_out, measured_lift
+from enigma.orchestrator.tech import selection_from_benchmark
 from enigma.research.narrative_study import association, scramble
 from enigma.schemas.common import AgentRole, ClaimLevel
 from enigma.schemas.governance import ImprovementProposal, ProposalStatus, ProposalTarget
@@ -70,6 +72,33 @@ def test_prediction_snapshot_is_an_l0_prior() -> None:
                 "order_side": "buy",
             }
         )
+
+
+def test_benchmark_selection_does_not_adopt() -> None:
+    report = {
+        "task_set_hash": "sha256:abc",
+        "summary": [
+            ModelSummary(
+                model_alias="fixture-local",
+                provider="fixture",
+                tasks_scored=4,
+                mean_score=0.4,
+                total_cost_usd=0.0,
+                mean_latency_ms=30.0,
+            ).model_dump(),
+            ModelSummary(
+                model_alias="fixture-frontier",
+                provider="fixture",
+                tasks_scored=4,
+                mean_score=0.7,
+                total_cost_usd=0.02,
+                mean_latency_ms=200.0,
+            ).model_dump(),
+        ],
+    }
+    choice = selection_from_benchmark(report)
+    assert choice["selected_model"] == "fixture-frontier"
+    assert choice["adoption_allowed"] is False
 
 
 def test_rollout_requires_positive_lift_and_citations() -> None:

@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from enigma.agents.base import Agent, AgentContext, DecisionRecord, TaskOutcome
+from enigma.gateway.benchmark import ModelSummary, choose_model
+from enigma.learning.adoption import may_roll_out
 from enigma.schemas.common import AgentRole
 from enigma.schemas.knowledge import Source, SourceKind
 
@@ -59,8 +61,13 @@ class TechnologyInnovationAgent(Agent):
     def _benchmark(self, ctx: AgentContext) -> TaskOutcome:
         report: dict[str, Any] = ctx.tools.call("gateway.benchmark")
         status = str(report.get("status", "unknown"))
+        choice = selection_from_benchmark(report)
         return TaskOutcome(
-            outputs={"status": status, "summary": report.get("summary", [])},
+            outputs={
+                "status": status,
+                "summary": report.get("summary", []),
+                **choice,
+            },
             decisions=[
                 DecisionRecord(
                     "model_benchmark",
@@ -68,7 +75,23 @@ class TechnologyInnovationAgent(Agent):
                     "scheduled_benchmark",
                     f"Benchmark status {status}; providers "
                     f"{report.get('available_providers', [])}; missing credentials for "
-                    f"{sorted(report.get('missing_credentials', {}))}.",
+                    f"{sorted(report.get('missing_credentials', {}))}. "
+                    f"Selected {choice['selected_model']}. "
+                    "Adoption stays closed without a positive measured lift and a postmortem.",
                 )
             ],
         )
+
+
+def selection_from_benchmark(report: dict[str, Any]) -> dict[str, Any]:
+    """Pick a measured model. A benchmark score is not an adoption lift."""
+    summaries = [ModelSummary.model_validate(row) for row in report.get("summary") or []]
+    chosen = choose_model(summaries)
+    return {
+        "selected_model": None if chosen is None else chosen.model_alias,
+        "adoption_allowed": may_roll_out(
+            0.0,
+            postmortem_ids=(),
+            benchmark_id=str(report.get("task_set_hash") or "") or None,
+        ),
+    }
