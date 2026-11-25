@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Cycle {{ c.id }}{% endblock %}
+{% block content %}
+<h1>Research cycle <span class="mono">{{ c.id }}</span> <span class="pill">{{ c.status }}</span></h1>
+{% set reached = c.events|map(attribute='to_state')|list %}
+<div class="steps">
+{% for s in steps %}<span class="step {{ 'done' if s in reached else '' }}">{{ loop.index }}. {{ s|replace('_',' ')|lower }}</span>{% endfor %}
+<span class="step {{ 'done' if 'COMPLETED' in reached else '' }}">13. resumable completion</span>
+</div>
+{% if c.state.abort_reason %}<p class="bad">Aborted: {{ c.state.abort_reason }}</p>{% endif %}
+
+<h2>Timeline (state-machine events)</h2>
+<table><tr><th>#</th><th>From</th><th>To</th><th>Actor</th><th>Reason</th><th>Artifacts</th><th>UTC</th></tr>
+{% for e in c.events %}<tr><td>{{ e.seq }}</td><td>{{ e.from_state or '' }}</td><td>{{ e.to_state }}</td><td>{{ e.actor }}</td><td>{{ e.reason_code }}</td><td class="mono">{{ e.artifact_hashes }}</td><td class="mono">{{ e.ts }}</td></tr>{% endfor %}
+</table>
+
+<h2>Delegated tasks</h2>
+<table><tr><th>Task</th><th>Kind</th><th>Assigned to</th><th>Status</th><th>Attempts</th><th>Error</th></tr>
+{% for t in c.tasks %}<tr><td class="mono">{{ t.id }}</td><td>{{ t.kind }}</td><td>{{ t.assigned_to }}</td><td>{{ t.status }}</td><td>{{ t.attempts }}</td><td class="bad">{{ t.error or '' }}</td></tr>{% endfor %}
+</table>
+
+<h2>Research</h2>
+<p>{{ c.sources }} sources and {{ c.evidence }} evidence items used by this cycle. <a href="/knowledge">Knowledge registry</a></p>
+
+{% if c.hypothesis %}
+<h2>Hypothesis (L1)</h2>
+<div class="card"><b>{{ c.hypothesis.title }}</b> <span class="muted mono">{{ c.hypothesis.id }}</span>
+<p>{{ c.hypothesis.mechanism }}</p>
+<p class="mono">{{ c.hypothesis.formal_statement }}</p>
+<p><b>Falsified if:</b></p><ul>{% for f in c.hypothesis.falsification_criteria %}<li>{{ f }}</li>{% endfor %}</ul>
+<p class="muted">Search space {{ c.hypothesis.search_space }} · trial budget {{ c.hypothesis.trial_budget }} · {{ c.hypothesis.evidence_ids|length }} supporting / {{ c.hypothesis.contradictory_evidence_ids|length }} contradicting evidence items</p></div>
+{% endif %}
+
+{% if c.experiments %}
+<h2>Registered experiments (research window, net of costs)</h2>
+<table><tr><th>#</th><th>Status</th><th>Net Sharpe</th><th>Gross Sharpe</th><th>Ann. return</th><th>Max DD</th><th>Turnover/yr</th><th>Twin Δ</th><th>Result hash</th></tr>
+{% for e in c.experiments %}<tr><td>{{ e.trial_index }}</td><td>{{ e.status }}</td>
+<td>{{ '%.3f'|format(e.metrics.get('net_sharpe', 0)) }}</td><td>{{ '%.3f'|format(e.metrics.get('gross_sharpe', 0)) }}</td>
+<td>{{ '%.2f%%'|format(100*e.metrics.get('annual_return', 0)) }}</td><td>{{ '%.2f%%'|format(100*e.metrics.get('max_drawdown', 0)) }}</td>
+<td>{{ '%.1f'|format(e.metrics.get('annual_turnover', 0)) }}</td><td class="mono">{{ e.metrics.get('twin_max_abs_delta', '') }}</td><td class="mono">{{ (e.result_hash or e.error or '')[:30] }}</td></tr>{% endfor %}
+</table>
+{% endif %}
+
+{% if c.validation %}
+<h2>Independent validation · protocol {{ c.validation.protocol_version }} ·
+<span class="{{ 'ok' if c.validation.overall=='PASS' else 'bad' }}">{{ c.validation.overall }}</span></h2>
+<table><tr><th>Gate</th><th>Name</th><th>Required</th><th>Result</th><th>Stat</th><th>Threshold</th></tr>
+{% for g in c.validation.gates %}<tr><td>{{ g.gate_id }}</td><td>{{ g.name }}</td><td>{{ 'yes' if g.gate_id in c.validation.required_gates else 'info' }}</td>
+<td class="{{ 'ok' if g.result=='PASS' else 'bad' }}">{{ g.result }}</td><td class="mono">{{ g.stat }}</td><td class="mono">{{ g.comparator }} {{ g.threshold }}</td></tr>{% endfor %}
+</table>
+<p class="muted">Trials counted: {{ c.validation.trial_count }} · DSR {{ c.validation.deflated_sharpe }} · holdout net Sharpe {{ c.validation.net_sharpe_holdout }} · validator {{ c.validation.validator_build_sha }}</p>
+{% endif %}
+
+{% if c.lessons %}
+<h2>Lessons stored</h2>
+<ul>{% for l in c.lessons %}<li>{{ l.statement }} <span class="muted">[{{ l.topics|join(', ') }}]</span></li>{% endfor %}</ul>
+{% endif %}
+
+{% if c.next_proposal %}
+<h2>Proposed next experiment</h2>
+<div class="card"><b>{{ c.next_proposal.mechanism_id }}</b> — {{ c.next_proposal.rationale }}
+<pre>{{ c.next_proposal.hypothesis_delta|tojson_pretty }}</pre></div>
+{% endif %}
+
+<h2>Agent communication ({{ c.messages|length }} messages)</h2>
+<table><tr><th>UTC</th><th>From</th><th>To</th><th>Type</th><th>Payload hash</th></tr>
+{% for m in c.messages %}<tr><td class="mono">{{ m.timestamp_utc }}</td><td>{{ m.from_agent }}</td><td>{{ m.to_agent }}</td><td>{{ m.message_type }}</td><td class="mono">{{ m.payload_hash[:23] }}</td></tr>{% endfor %}
+</table>
+{% endblock %}

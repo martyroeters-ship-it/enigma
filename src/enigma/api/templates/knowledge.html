@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Knowledge{% endblock %}
+{% block content %}
+<h1>Knowledge &amp; data</h1>
+<div class="grid">
+  <div class="card"><div class="k">Sources</div><div class="v">{{ k.sources }}</div></div>
+  <div class="card"><div class="k">Evidence items</div><div class="v">{{ k.evidence }}</div></div>
+  <div class="card"><div class="k">Knowledge edges</div><div class="v">{{ k.edges }}</div></div>
+  <div class="card"><div class="k">Lessons</div><div class="v">{{ k.lessons }}</div></div>
+  <div class="card"><div class="k">Failure conditions</div><div class="v">{{ k.failures }}</div></div>
+  <div class="card"><div class="k">Market analyses</div><div class="v">{{ k.analyses }}</div></div>
+</div>
+<p class="muted">By provider: {{ k.by_provider }} · by kind: {{ k.by_kind }}</p>
+
+<h2>Dataset versions (research plane)</h2>
+{% if k.datasets %}
+<table><tr><th>Id</th><th>Name</th><th>Venue</th><th>Window</th><th>Rows</th><th>PIT</th><th>Content hash</th></tr>
+{% for d in k.datasets %}<tr><td class="mono">{{ d.id }}</td><td>{{ d.name }}</td><td>{{ d.venue }}</td><td class="mono">{{ d.time_start }} → {{ d.time_end }}</td><td>{{ d.row_count }}</td>
+<td class="{{ 'ok' if d.pit_certified else 'bad' }}">{{ 'certified' if d.pit_certified else 'no' }}</td><td class="mono">{{ d.content_hash[:30] }}</td></tr>{% endfor %}
+</table>
+{% else %}<div class="empty">No dataset has been acquired.</div>{% endif %}
+
+<h2>Recent sources</h2>
+{% if k.recent_sources %}
+<table><tr><th>Title</th><th>Provider</th><th>Published</th><th>Retrieved (UTC)</th></tr>
+{% for s in k.recent_sources %}<tr><td><a href="{{ s.url }}" rel="noreferrer noopener" target="_blank">{{ s.title }}</a></td><td>{{ s.provider }}</td><td class="mono">{{ s.published_at or '' }}</td><td class="mono">{{ s.retrieved_at }}</td></tr>{% endfor %}
+</table>
+{% else %}<div class="empty">No external sources retrieved yet.</div>{% endif %}
+
+<h2>Recent evidence (verbatim excerpts, untrusted data)</h2>
+{% for e in k.recent_evidence %}<div class="card" style="margin-bottom:8px"><span class="muted mono">{{ e.id }} · {{ e.extraction_method }} · source {{ e.source_id }}</span><p>{{ e.excerpt }}</p></div>
+{% else %}<div class="empty">No evidence extracted yet.</div>{% endfor %}
+{% endblock %}

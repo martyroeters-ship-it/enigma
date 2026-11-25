@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Institution overview</h1>
+<div class="grid">
+  <div class="card"><div class="k">Research cycles</div><div class="v">{{ cycles|length }}</div></div>
+  <div class="card"><div class="k">Tasks (pending / running / done / failed)</div>
+    <div class="v">{{ health.tasks.get('pending',0) }} / {{ health.tasks.get('running',0) }} /
+      {{ health.tasks.get('succeeded',0) }} / {{ health.tasks.get('failed',0) }}</div></div>
+  <div class="card"><div class="k">Sources · evidence</div><div class="v">{{ knowledge.sources }} · {{ knowledge.evidence }}</div></div>
+  <div class="card"><div class="k">Hypotheses · lessons</div><div class="v">{{ knowledge.hypotheses }} · {{ knowledge.lessons }}</div></div>
+  <div class="card"><div class="k">API spend (USD)</div><div class="v">{{ '%.4f'|format(costs.totals.usd) }}</div></div>
+  <div class="card"><div class="k">HTTP requests</div><div class="v">{{ costs.totals.http_requests|int }}</div></div>
+</div>
+
+<h2>Workers</h2>
+{% if health.workers %}
+<table><tr><th>Worker</th><th>Status</th><th>Last heartbeat (UTC)</th></tr>
+{% for w in health.workers %}<tr><td class="mono">{{ w.worker }}</td><td>{{ w.status }}</td><td class="mono">{{ w.last_seen }}</td></tr>{% endfor %}
+</table>
+{% else %}<div class="empty">No worker has reported a heartbeat yet. Start one with <span class="mono">enigma run</span>.</div>{% endif %}
+
+<h2>Research cycles</h2>
+{% if cycles %}
+<table><tr><th>Cycle</th><th>Objective</th><th>Step</th><th>Progress</th><th>Validation</th><th>Updated (UTC)</th></tr>
+{% for c in cycles %}
+<tr><td class="mono"><a href="/cycles/{{ c.id }}">{{ c.id }}</a></td><td>{{ c.objective }}</td>
+<td>{{ c.step }}{% if c.abort_reason %}<div class="bad">{{ c.abort_reason }}</div>{% endif %}</td>
+<td><div class="bar"><span style="width:{{ (100*c.progress/c.total)|int }}%"></span></div><span class="muted">{{ c.progress }}/{{ c.total }}</span></td>
+<td class="{{ 'ok' if c.validation=='PASS' else ('bad' if c.validation=='FAIL' else 'muted') }}">{{ c.validation or '—' }}</td>
+<td class="mono">{{ c.updated_at }}</td></tr>
+{% endfor %}</table>
+{% else %}<div class="empty">No research objective has been submitted.</div>{% endif %}
+
+<h2>State machines</h2>
+<table><tr><th>Machine</th><th>States</th></tr>
+{% for name, counts in machines.items() %}<tr><td>{{ name }}</td><td class="mono">{{ counts if counts else '—' }}</td></tr>{% endfor %}
+</table>
+
+<h2>Recent agent decisions</h2>
+{% if decisions %}
+<table><tr><th>Agent</th><th>Decision</th><th>Outcome</th><th>Reasoning summary</th></tr>
+{% for d in decisions %}<tr><td>{{ d.agent }}</td><td>{{ d.decision_type }}</td><td>{{ d.outcome }}</td><td>{{ d.reasoning_summary[:300] }}</td></tr>{% endfor %}
+</table>
+{% else %}<div class="empty">No decisions recorded yet.</div>{% endif %}
+{% endblock %}

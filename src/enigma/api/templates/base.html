@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="15">
+<title>Enigma · {% block title %}Overview{% endblock %}</title>
+<style>
+  :root { --bg:#0e1116; --panel:#161b22; --line:#262c36; --text:#d6dde6; --muted:#8b96a5;
+          --accent:#7aa2f7; --ok:#3fb950; --bad:#f85149; --warn:#d29922; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+         background:var(--bg); color:var(--text); }
+  header { display:flex; align-items:center; gap:24px; padding:12px 24px;
+           border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; }
+  header .brand { font-weight:700; letter-spacing:.12em; }
+  nav a { color:var(--muted); text-decoration:none; margin-right:16px; }
+  nav a:hover, nav a.active { color:var(--text); }
+  .pill { padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid var(--line); }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  main { padding:20px 24px; max-width:1400px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 16px; } h2 { font-size:15px; margin:24px 0 8px; color:var(--muted);
+       text-transform:uppercase; letter-spacing:.08em; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; }
+  .card .k { color:var(--muted); font-size:12px; } .card .v { font-size:22px; font-weight:600; }
+  table { width:100%; border-collapse:collapse; background:var(--panel);
+          border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  th, td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:500; font-size:12px; }
+  td.mono, .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
+  a { color:var(--accent); }
+  .bar { height:6px; background:var(--line); border-radius:3px; overflow:hidden; min-width:120px; }
+  .bar > span { display:block; height:100%; background:var(--accent); }
+  .steps { display:flex; flex-wrap:wrap; gap:6px; }
+  .step { padding:4px 8px; border-radius:6px; border:1px solid var(--line); font-size:12px; color:var(--muted); }
+  .step.done { border-color:var(--ok); color:var(--ok); } .step.cur { border-color:var(--accent); color:var(--text); }
+  pre { background:#0b0e13; border:1px solid var(--line); padding:10px; border-radius:6px;
+        overflow:auto; max-height:420px; font-size:12px; }
+  .muted { color:var(--muted); }
+  .empty { color:var(--muted); padding:16px; border:1px dashed var(--line); border-radius:8px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">ENIGMA</span>
+  <nav>
+    <a href="/">Overview</a><a href="/agents">Agents</a><a href="/knowledge">Knowledge</a>
+    <a href="/strategies">Strategies</a><a href="/learning">Learning</a>
+    <a href="/messages">Messages</a><a href="/audit">Audit &amp; costs</a>
+    <a href="/api/docs">API</a>
+  </nav>
+  <span style="margin-left:auto" class="pill {{ 'bad' if health.kill_switch else 'ok' }}">
+    kill switch {{ 'ON' if health.kill_switch else 'off' }}</span>
+  <span class="pill {{ 'ok' if health.audit_chain_ok else 'bad' }}">
+    audit chain {{ 'verified' if health.audit_chain_ok else 'BROKEN' }} ({{ health.audit_entries }})</span>
+  <span class="pill">no live trading</span>
+</header>
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

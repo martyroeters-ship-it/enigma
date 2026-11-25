@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Agents{% endblock %}
+{% block content %}
+<h1>Agents (12 role contracts)</h1>
+<table><tr><th>#</th><th>Role</th><th>Plane</th><th>Mission</th><th>Tools</th><th>Current task</th><th>Tasks reflected</th><th>Success</th><th>Spend</th><th>Contract</th></tr>
+{% for a in agents %}
+<tr><td>{{ a.number }}</td><td><b>{{ a.name }}</b><div class="muted mono">{{ a.role }}{{ ' · deterministic core' if a.deterministic else '' }}</div></td>
+<td>{{ a.plane }}</td><td>{{ a.mission }}</td><td class="mono">{{ a.tools|join(', ') }}</td>
+<td>{{ a.current_task or '—' }}</td><td>{{ a.tasks_done }}</td>
+<td>{{ '%.0f%%'|format(100*a.success_rate) if a.success_rate is not none else '—' }}</td>
+<td class="mono">{% if a.costs %}${{ '%.4f'|format(a.costs.get('usd',0)) }} · {{ a.costs.get('http_requests',0)|int }} http{% else %}—{% endif %}</td>
+<td class="mono">{{ a.instructions_version }}</td></tr>
+{% endfor %}</table>
+
+<h2>Decision records</h2>
+{% if decisions %}
+<table><tr><th>UTC</th><th>Agent</th><th>Type</th><th>Outcome</th><th>Reason code</th><th>Reasoning summary</th></tr>
+{% for d in decisions %}<tr><td class="mono">{{ d.created_at }}</td><td>{{ d.agent }}</td><td>{{ d.decision_type }}</td><td>{{ d.outcome }}</td><td class="mono">{{ d.reason_code }}</td><td>{{ d.reasoning_summary }}</td></tr>{% endfor %}
+</table>
+{% else %}<div class="empty">No decisions recorded yet.</div>{% endif %}
+{% endblock %}

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Messages{% endblock %}
+{% block content %}
+<h1>Inter-agent messages</h1>
+{% if messages %}
+<table><tr><th>UTC</th><th>From</th><th>To</th><th>Type</th><th>Correlation</th><th>Payload</th></tr>
+{% for m in messages %}<tr><td class="mono">{{ m.timestamp_utc }}</td><td>{{ m.from_agent }}</td><td>{{ m.to_agent }}</td><td>{{ m.message_type }}</td>
+<td class="mono"><a href="/cycles/{{ m.correlation_id }}">{{ m.correlation_id }}</a></td><td class="mono">{{ (m.payload|tojson)[:220] }}</td></tr>{% endfor %}
+</table>
+{% else %}<div class="empty">No messages yet.</div>{% endif %}
+{% endblock %}

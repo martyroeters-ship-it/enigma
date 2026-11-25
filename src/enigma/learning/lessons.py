@@ -40,7 +40,7 @@ def derive_lessons(ev: CycleEvidence, now: UtcDatetime) -> list[Lesson]:
     done = [e for e in ev.experiments if e.status is ExperimentStatus.SUCCEEDED]
     net = _metric(done, "net_sharpe")
     gross = _metric(done, "gross_sharpe")
-    turnover = _metric(done, "turnover_per_year")
+    turnover = _metric(done, "annual_turnover")
     symbols = sorted({i.symbol for i in ev.hypothesis.instruments})
     base_topics = (ev.mechanism_id, ev.hypothesis.family_id, *symbols)
     refs = (ev.hypothesis.id, *(e.id for e in ev.experiments))
