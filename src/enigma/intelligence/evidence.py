@@ -176,13 +176,19 @@ def select_sentences(
 ) -> list[ScoredSentence]:
     scored: list[ScoredSentence] = []
     for s in split_sentences(text):
-        if not MIN_SENTENCE_CHARS <= len(s.text) <= MAX_SENTENCE_CHARS:
+        if not MIN_SENTENCE_CHARS <= len(s.text) <= MAX_SENTENCE_CHARS or _looks_tabular(s.text):
             continue
         score = score_sentence(s.text, topic_stems)
         if score >= min_score:
             scored.append(ScoredSentence(s.text, s.start, s.end, score, domain_topics(s.text)))
     scored.sort(key=lambda x: (-x.score, x.start))
     return sorted(scored[:limit], key=lambda x: x.start)
+
+
+def _looks_tabular(sentence: str) -> bool:
+    """Table/figure residue from PDF extraction: many short lines."""
+    lines = [ln for ln in sentence.split("\n") if ln.strip()]
+    return len(lines) >= 4 and sum(len(ln) for ln in lines) / len(lines) < 45
 
 
 def normalize_claim(sentence: str) -> str:

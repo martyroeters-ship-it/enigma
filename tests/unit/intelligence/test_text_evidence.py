@@ -13,6 +13,7 @@ from enigma.intelligence.evidence import (
     polarity,
 )
 from enigma.intelligence.expansion import TfidfQueryExpander, sanitize_queries
+from enigma.intelligence.models import SearchHit
 from enigma.intelligence.normalize import (
     id_keys,
     near_duplicate_score,
@@ -206,3 +207,55 @@ def test_ranking_prefers_empirical_specific_sources_over_popularity() -> None:
         topic_stems=TOPIC_STEMS,
     )
     assert paper > repo
+
+
+def test_identical_long_titles_merge_across_versions() -> None:
+    title = "Perpetual Futures for Stocks: The SpaceX Pre-IPO Market"
+    preprint = (
+        "Robert Shiller proposed perpetual futures in 1993 to create derivative markets. " * 2
+    )
+    published = (
+        "Shiller proposed perpetual futures in 1993 for illiquid assets; we study designs. " * 2
+    )
+    assert near_duplicate_score(title, preprint, title, published) >= 0.85
+    unrelated = "Completely different content about protein folding kinetics in yeast cells. " * 2
+    assert near_duplicate_score(title, preprint, title, unrelated) < 0.85
+
+
+def test_tabular_pdf_residue_is_not_evidence() -> None:
+    table = (
+        "Basis Spread 3D\nGap between futures\nand spot prices 0.4\nRVol 24h 1.2%\nReturn 3D 0.8%"
+    )
+    clock = FrozenClock(NOW)
+    assert extract_evidence(_source(abstract=table), table, "fulltext", TOPIC_STEMS, clock) == []
+
+
+def test_expansion_skips_generic_terms() -> None:
+    def hit(title: str, abstract: str) -> SearchHit:
+        h = "sha256:" + "0" * 64
+        return SearchHit(
+            provider="openalex",
+            kind=SourceKind.ACADEMIC_PAPER,
+            title=title,
+            url="https://x.org",
+            abstract=abstract,
+            query="q",
+            rank=0,
+            raw_uri="r",
+            content_hash=h,
+            response_uri="r",
+            response_hash=h,
+            retrieved_at=NOW,
+        )
+
+    hits = [
+        hit(
+            "Funding rate markets and open interest",
+            "Perpetual futures markets with open interest.",
+        ),
+        hit(
+            "Open interest in perpetual futures markets", "Funding rate markets and open interest."
+        ),
+    ]
+    queries = TfidfQueryExpander().expand("perpetual futures funding rate", hits, 3)
+    assert queries == ["perpetual futures funding rate open interest"]

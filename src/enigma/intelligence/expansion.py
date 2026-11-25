@@ -14,6 +14,13 @@ from enigma.intelligence.text import content_terms, stem, stems, tfidf_key_phras
 from enigma.intelligence.untrusted import clean_text
 
 MAX_QUERY_CHARS = 200
+# Words that add no retrieval specificity on their own when appended to a topic query.
+_GENERIC = (
+    "market markets contract contracts price prices trading trade exchange exchanges financial "
+    "asset assets system systems framework mechanism mechanisms design structure dynamics "
+    "evidence approach analysis study high low large small time based new paper"
+)
+GENERIC_TERMS = frozenset(_GENERIC.split())
 
 
 @runtime_checkable
@@ -48,7 +55,9 @@ class TfidfQueryExpander:
                 for t in phrase.split()
                 if any(stem(part) not in topic_stems for part in t.split("-") if part)
             ]
-            if not new_terms:
+            if not [
+                t for t in new_terms if stem(t) not in GENERIC_TERMS and t not in GENERIC_TERMS
+            ]:
                 continue
             queries.append(f"{anchor} {' '.join(new_terms)}".strip())
             if len(queries) >= limit:
