@@ -18,7 +18,12 @@ from enigma.validation.protocol import (
     ValidationProtocol,
     load_protocol,
 )
-from enigma.validation.service import ValidationService, render_summary
+from enigma.validation.service import (
+    ValidationService,
+    render_summary,
+    report_id_for,
+    summary_id_for,
+)
 
 __all__ = [
     "GATE_FAILURE_KIND",
@@ -33,5 +38,7 @@ __all__ = [
     "frame_content_hash",
     "load_protocol",
     "render_summary",
+    "report_id_for",
+    "summary_id_for",
     "validator_build_sha",
 ]

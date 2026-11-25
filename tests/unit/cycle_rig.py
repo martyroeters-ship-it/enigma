@@ -286,6 +286,7 @@ class FakeServices:
             self.backtest_run,
             self.validation_run,
             self.gateway_status,
+            lambda symbols: RESEARCH_CUTOFF,
         )
 
 

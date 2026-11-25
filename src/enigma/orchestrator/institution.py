@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 
-from enigma.agents import AgentWorker, ContractRegistry
+from enigma.agents import Agent, AgentWorker, ContractRegistry
 from enigma.comm import MessageBus
 from enigma.core.clock import Clock, SystemClock
 from enigma.core.config import Settings
@@ -16,7 +16,7 @@ from enigma.orchestrator.cycle import CycleDriver, HoldoutPolicy
 from enigma.orchestrator.roles import ALL_ROLE_AGENTS
 from enigma.orchestrator.tech import TechnologyInnovationAgent
 from enigma.risk.service import RiskLimits, RiskService
-from enigma.schemas.common import Instrument
+from enigma.schemas.common import AgentRole, Instrument
 from enigma.store import Stores
 
 ServicesFactory = Callable[[Settings, Stores, HoldoutPolicy, Clock], Services]
@@ -64,9 +64,11 @@ class Institution:
         risk = RiskService(stores, RiskLimits.load(reg_dir / "risk" / "limits.yaml"), clock)
         services = services_factory(settings, stores, policy, clock)
         tools = build_registry(CoreTools(stores, fsm, risk, clock), services)
-        agents = {a.role: a() for a in (*ALL_ROLE_AGENTS, TechnologyInnovationAgent)}
+        agents: dict[AgentRole, Agent] = {
+            a.role: a() for a in (*ALL_ROLE_AGENTS, TechnologyInnovationAgent)
+        }
         worker = AgentWorker(stores, bus, contracts, tools, agents, clock=clock, lease=lease)
-        driver = CycleDriver(stores, bus, fsm, contracts, policy, clock)
+        driver = CycleDriver(stores, bus, fsm, contracts, policy, services.research_cutoff, clock)
         return cls(settings, stores, bus, fsm, contracts, policy, driver, worker, services, clock)
 
     def close(self) -> None:

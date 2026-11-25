@@ -37,7 +37,7 @@ from enigma.backtest.statistics import (
 )
 from enigma.core.clock import Clock, SystemClock
 from enigma.core.errors import IntegrityError, InvalidTransitionError, PermissionDeniedError
-from enigma.core.hashing import sha256_of
+from enigma.core.hashing import sha256_hex, sha256_of
 from enigma.core.ids import new_id
 from enigma.fsm.definitions import STRATEGY_LIFECYCLE
 from enigma.fsm.machine import StateMachineStore
@@ -74,6 +74,15 @@ TRUNCATION_CHECKPOINTS_PER_SYMBOL = 8
 DEFAULT_NOTIONAL_USD = 100_000.0
 
 SummaryWriter = Callable[[tuple[GateResult, ...], GateOutcome], str]
+
+
+def report_id_for(request_id: str) -> str:
+    """One report per validation request, so a retried request finds its existing result."""
+    return "vrp_" + sha256_hex(request_id)[:26].upper()
+
+
+def summary_id_for(request_id: str) -> str:
+    return "vsm_" + sha256_hex(request_id)[:26].upper()
 
 
 def render_summary(gates: tuple[GateResult, ...], overall: GateOutcome) -> str:
@@ -173,16 +182,21 @@ class ValidationService:
         return cutoff
 
     def validate(self, request: ValidationRequest) -> ValidationReport:
+        existing = self.custody.get_report(report_id_for(request.id))
+        if existing is not None:
+            return existing
         inputs = self._preflight(request)
         package = inputs.package
-        self.fsm.transition(
-            STRATEGY_LIFECYCLE,
-            package.id,
-            "VALIDATION_RUNNING",
-            ACTOR,
-            "validation_started",
-            {"strategy_package": package.content_hash},
-        )
+        # A request interrupted mid-run resumes from VALIDATION_RUNNING; gates are deterministic.
+        if self.fsm.state(STRATEGY_LIFECYCLE, package.id) != "VALIDATION_RUNNING":
+            self.fsm.transition(
+                STRATEGY_LIFECYCLE,
+                package.id,
+                "VALIDATION_RUNNING",
+                ACTOR,
+                "validation_started",
+                {"strategy_package": package.content_hash},
+            )
         self.audit.record(
             ACTOR,
             "validation.started",
@@ -217,7 +231,7 @@ class ValidationService:
     def _preflight(self, request: ValidationRequest) -> _Inputs:
         package = self.documents.require(StrategyPackage, request.strategy_package_id)
         state = self.fsm.state(STRATEGY_LIFECYCLE, package.id)
-        if state != "VALIDATION_QUEUED":
+        if state not in ("VALIDATION_QUEUED", "VALIDATION_RUNNING"):
             raise InvalidTransitionError(
                 f"package {package.id} is in {state}, validation requires VALIDATION_QUEUED"
             )
@@ -650,7 +664,7 @@ class ValidationService:
         overall = aggregate(gates, self.protocol.required_gates)
         writer = self.summary_writer or render_summary
         report = ValidationReport(
-            id=new_id("vrp"),
+            id=report_id_for(x.request.id),
             request_id=x.request.id,
             strategy_package_id=package.id,
             protocol_version=self.protocol.version,
@@ -677,6 +691,7 @@ class ValidationService:
         self.custody.store_report(report)
         self.documents.put(report)
         summary = RedactedValidationSummary(
+            id=summary_id_for(x.request.id),
             report_id=report.id,
             strategy_package_id=package.id,
             protocol_version=report.protocol_version,

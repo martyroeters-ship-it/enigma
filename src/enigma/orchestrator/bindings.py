@@ -8,8 +8,9 @@ implementation behind its own object and lets tests substitute labelled test dou
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -42,6 +43,7 @@ class Services:
     backtest_run: ToolFn
     validation_run: ToolFn
     gateway_status: ToolFn
+    research_cutoff: Callable[[Sequence[str]], datetime]
     llm_structured: ToolFn | None = None
     gateway_benchmark: ToolFn | None = None
 
