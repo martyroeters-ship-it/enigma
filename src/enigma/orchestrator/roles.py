@@ -586,6 +586,33 @@ class RiskManagementAgent(Agent):
         )
 
 
+class ExecutionMonitoringAgent(Agent):
+    role = AgentRole.EXECUTION_MONITORING
+
+    def execute(self, ctx: AgentContext) -> TaskOutcome:
+        i = ctx.task.inputs
+        result: dict[str, Any] = ctx.tools.call(
+            "execution.paper",
+            package_id=i["package_id"],
+            risk_review_id=i["risk_review_id"],
+            acknowledge_id=i["acknowledge_id"],
+            notional_usd=float(i.get("notional_usd", 10_000.0)),
+        )
+        return TaskOutcome(
+            outputs=result,
+            decisions=[
+                DecisionRecord(
+                    "paper_session",
+                    str(result["session_id"]),
+                    "risk_clearance_and_human_ack",
+                    f"Opened paper session status={result['status']} "
+                    f"equity={result['equity_usd']}.",
+                    output_refs=(str(result["session_id"]),),
+                )
+            ],
+        )
+
+
 class MetaLearningAgent(Agent):
     role = AgentRole.META_LEARNING
 
@@ -702,5 +729,6 @@ ALL_ROLE_AGENTS: tuple[type[Agent], ...] = (
     StrategyEngineeringAgent,
     IndependentValidationAgent,
     RiskManagementAgent,
+    ExecutionMonitoringAgent,
     MetaLearningAgent,
 )
