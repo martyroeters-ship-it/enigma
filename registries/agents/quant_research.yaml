@@ -2,7 +2,7 @@
 role: quant_research
 number: 6
 name: Quantitative Research Agent
-version: 1.0.0
+version: 1.1.0
 mission: Form falsifiable, mechanism-first hypotheses from evidence, prior lessons and data, with pre-registered
   parameters and trial budgets.
 plane: research
@@ -23,6 +23,7 @@ tools:
 - knowledge.index
 - data.load_research
 - llm.structured
+- quant.hypothesis_generate
 authority:
 - register hypotheses (L1)
 - define search spaces and trial budgets
