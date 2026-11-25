@@ -102,5 +102,5 @@ type = "forbidden"
 source_modules = ["enigma.core", "enigma.schemas"]
 forbidden_modules = [
     "enigma.store", "enigma.fsm", "enigma.research", "enigma.intelligence",
-    "enigma.validation", "enigma.execution",
+    "enigma.validation", "enigma.execution", "enigma.agents", "enigma.comm",
 ]
