@@ -1,12 +1,13 @@
-"""Validation protocol loader. The registry YAML is human-owned and pinned by sha256 here.
+"""Validation protocol loader. Registry YAML files are human-owned and pinned by sha256.
 
-Editing `registries/validation/protocol_0.1.0-slice.yaml` without a new protocol version and a
-matching pin change in this file makes the validation service refuse to run.
+Editing a protocol YAML without a new version and a matching pin change here makes the
+validation service refuse to run.
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -15,11 +16,24 @@ import yaml
 
 from enigma.core.errors import IntegrityError
 
+_REG_DIR = Path(__file__).resolve().parents[3] / "registries" / "validation"
+
+# Default remains the M1 slice until operators explicitly opt into 1.0.0.
 PROTOCOL_VERSION = "0.1.0-slice"
 PROTOCOL_SHA256 = "ccaa3d0f26b8474320b8be8e518c2a3abfed687afb523018782fdbde6f7efc8c"
-DEFAULT_PROTOCOL_PATH = (
-    Path(__file__).resolve().parents[3] / "registries" / "validation" / "protocol_0.1.0-slice.yaml"
-)
+DEFAULT_PROTOCOL_PATH = _REG_DIR / "protocol_0.1.0-slice.yaml"
+
+PROTOCOL_REGISTRY: dict[str, tuple[Path, str]] = {
+    "0.1.0-slice": (
+        _REG_DIR / "protocol_0.1.0-slice.yaml",
+        "ccaa3d0f26b8474320b8be8e518c2a3abfed687afb523018782fdbde6f7efc8c",
+    ),
+    "1.0.0": (
+        _REG_DIR / "protocol_1.0.0.yaml",
+        "cc80810e833b08f599afc847eb77361c23bb42c28ee3311de3d7c81dc476a785",
+    ),
+}
+
 REQUIRED_KEYS = ("protocol_version", "required_gates", "annualization_periods_per_year", "gates")
 
 
@@ -38,35 +52,56 @@ class ValidationProtocol:
             raise IntegrityError(f"protocol {self.version} has no gate {gate_id}") from exc
 
 
+def resolve_protocol_version(explicit: str | None = None) -> str:
+    if explicit:
+        return explicit
+    env = os.environ.get("ENIGMA_VALIDATION_PROTOCOL", "").strip()
+    return env or PROTOCOL_VERSION
+
+
 def load_protocol(
-    path: Path | None = None, expected_sha256: str = PROTOCOL_SHA256
+    path: Path | None = None,
+    expected_sha256: str | None = None,
+    *,
+    version: str | None = None,
 ) -> ValidationProtocol:
-    """Load and verify the protocol. Fails closed on any hash or structure mismatch."""
-    target = path or DEFAULT_PROTOCOL_PATH
+    """Load and verify a protocol. Fails closed on any hash or structure mismatch."""
+    chosen = resolve_protocol_version(version)
+    if path is None:
+        if chosen not in PROTOCOL_REGISTRY:
+            raise IntegrityError(f"unsupported validation protocol {chosen!r}")
+        target, pinned = PROTOCOL_REGISTRY[chosen]
+        expected = expected_sha256 or pinned
+    else:
+        target = path
+        # When a path is supplied (tests), default pin is the slice pin unless overridden.
+        expected = expected_sha256 or PROTOCOL_SHA256
     try:
         raw = target.read_bytes()
     except OSError as exc:
         raise IntegrityError(f"validation protocol unreadable: {target.name}") from exc
     digest = hashlib.sha256(raw).hexdigest()
-    if digest != expected_sha256:
+    if digest != expected:
         raise IntegrityError(
             f"validation protocol {target.name} sha256 {digest} does not match pinned"
-            f" {expected_sha256}; protocol changes need a new version and pin"
+            f" {expected}; protocol changes need a new version and pin"
         )
     data = yaml.safe_load(raw)
     if not isinstance(data, dict) or any(k not in data for k in REQUIRED_KEYS):
         raise IntegrityError("validation protocol is missing required keys")
-    if data["protocol_version"] != PROTOCOL_VERSION:
-        raise IntegrityError(
-            f"protocol_version {data['protocol_version']!r} != supported {PROTOCOL_VERSION!r}"
-        )
+    file_version = str(data["protocol_version"])
+    if path is None and file_version != chosen:
+        raise IntegrityError(f"protocol_version {file_version!r} != requested {chosen!r}")
+    if path is not None and expected_sha256 is None and file_version != PROTOCOL_VERSION:
+        # Legacy test path: only the default slice is accepted without an explicit pin.
+        raise IntegrityError(f"protocol_version {file_version!r} != supported {PROTOCOL_VERSION!r}")
     required = tuple(str(g) for g in data["required_gates"])
     gates = {str(k): dict(v) for k, v in data["gates"].items()}
     missing = [g for g in required if g not in gates]
     if not required or missing:
         raise IntegrityError(f"required gates without configuration: {missing}")
     return ValidationProtocol(
-        version=str(data["protocol_version"]),
+        version=file_version,
         required_gates=required,
         periods_per_year=float(data["annualization_periods_per_year"]),
         gates=gates,
