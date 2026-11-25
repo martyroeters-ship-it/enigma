@@ -20,6 +20,30 @@ from enigma.gateway.registry import ReasoningStyle, StructuredMode
 from enigma.gateway.types import FinishReason, MessageRole, NamedToolChoice, ReasoningEffort, Usage
 
 _FINISH = {"stop": FinishReason.STOP, "length": FinishReason.LENGTH}
+# Ollama's server default. This host logged default_num_ctx=4096 and then
+# "truncating input prompt" on hypothesis calls whose prompts were longer.
+_MIN_NUM_CTX = 4096
+
+
+def ollama_num_ctx(call: ProviderCall) -> int:
+    """Context length to request so the prompt is not truncated.
+
+    The value is a power of two (or the registry window when that is smaller
+    than the next power of two) so similar calls reuse one loaded runner.
+    It never exceeds ``model.context_window``.
+    """
+    from enigma.gateway.gateway import estimate_input_tokens  # noqa: PLC0415
+
+    window = call.model.context_window
+    needed = estimate_input_tokens(call.request) + billable_output_cap(call)
+    if needed >= window:
+        return window
+    ctx = window if window < _MIN_NUM_CTX else _MIN_NUM_CTX
+    while ctx < needed and ctx * 2 <= window:
+        ctx *= 2
+    if ctx < needed:
+        return window
+    return ctx
 
 
 class OllamaAdapter(ProviderAdapter):
@@ -61,7 +85,10 @@ class OllamaAdapter(ProviderAdapter):
             else:
                 messages.append({"role": m.role.value, "content": m.content})
         payload["messages"] = messages
-        options: dict[str, Any] = {"num_predict": billable_output_cap(call)}
+        options: dict[str, Any] = {
+            "num_predict": billable_output_cap(call),
+            "num_ctx": ollama_num_ctx(call),
+        }
         if req.temperature is not None:
             options["temperature"] = req.temperature
         payload["options"] = options

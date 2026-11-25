@@ -340,7 +340,9 @@ def test_ollama_format_think_and_tool_calls(make_gateway: GatewayFactory) -> Non
     body = _body(route)
     assert body["stream"] is False
     assert body["think"] is False
-    assert body["options"] == {"num_predict": 1000, "temperature": 0.0}
+    assert body["options"]["num_predict"] == 1000
+    assert body["options"]["temperature"] == 0.0
+    assert body["options"]["num_ctx"] == 4096
     assert body["tools"][0]["function"]["name"] == "get_price"
     assert resp.tool_calls[0].arguments == {"symbol": "ETH"}
     assert resp.finish_reason is FinishReason.TOOL_CALLS
