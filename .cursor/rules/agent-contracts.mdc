@@ -1,0 +1,40 @@
+---
+description: Enigma agent contracts — authority bounds, typed communication, budgets, memory
+globs:
+  - src/enigma/agents/**
+  - src/enigma/comm/**
+  - src/enigma/orchestrator/**
+  - packages/enigma-agents/**
+  - packages/enigma-comm/**
+  - registries/agents/**
+  - apps/scheduler/**
+---
+
+# Agent contracts
+
+Agents are **logical roles**, not necessarily separate models. Deterministic services own math, gates, risk, execution controls.
+
+## Every role needs
+
+- Mission, allow/deny authority, tool allowlist
+- Budgets (tokens, wall clock, API cost, compute)
+- Versioned instructions (SHA)
+- Typed messages only (envelope + schema_version)
+- Semantic / episodic / procedural / reflective memory hooks
+- KPIs defined outside the agent’s write scope
+
+## Authority highlights
+
+- **Validation**: may PASS/FAIL via service; may not soft-pass
+- **Risk**: independent veto; may not weaken limits without human approval
+- **Quant Research**: may not read holdouts or declare L3
+- **CIO/scheduler**: may assign tasks; may not override validation or risk
+- **Meta-learning**: may propose changes; may not auto-adopt risk/security/validation/KPI definitions
+
+## Communication
+
+Use OutboxMessage envelope (`message_id`, `correlation_id`, `from_agent`, `to_agent`, `message_type`, `schema_version`, `payload_hash`). Idempotent consumers.
+
+## M1 runnable roles
+
+Data Engineering, Intelligence, Quant Research, Strategy/sandbox path, Independent Validation (service), CIO/scheduler, Meta-learning (reflection/lessons/next). Stub the rest.

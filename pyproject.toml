@@ -1,0 +1,106 @@
+[project]
+name = "enigma"
+version = "0.1.0"
+description = "Enigma — autonomous quantitative research institution (research, independent validation, institutional learning)."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "Proprietary" }
+dependencies = [
+    "pydantic>=2.9",
+    "pyyaml>=6.0",
+    "httpx>=0.27",
+    "numpy>=2.0",
+    "scipy>=1.14",
+    "polars>=1.9",
+    "pyarrow>=17.0",
+    "structlog>=24.4",
+    "typer>=0.12",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "jinja2>=3.1",
+    "pypdf>=5.0",
+    "selectolax>=0.3.21",
+]
+
+[project.scripts]
+enigma = "enigma.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=5.0",
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "types-pyyaml>=6.0",
+    "import-linter>=2.1",
+    "respx>=0.21",
+]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/enigma"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "N", "S", "SIM", "RUF", "PL", "T20"]
+ignore = [
+    "PLR0913",  # explicit keyword-heavy constructors are deliberate in typed contracts
+    "PLR2004",  # statistical thresholds are named in registries, not magic in tests
+    "S101",     # assert allowed in tests (scoped below)
+    "PLR0917",  # internal helpers take explicit positional args
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "PLR0915", "PLR0912"]
+# Store modules interpolate only generated `?` placeholder lists and validated identifiers.
+"src/enigma/store/**" = ["S608"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+mypy_path = "src"
+packages = ["enigma"]
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = ["pyarrow.*", "selectolax.*", "scipy.*", "pypdf.*", "respx.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "network: test performs real network I/O against public APIs (deselect with -m 'not network')",
+]
+
+[tool.importlinter]
+root_package = "enigma"
+
+[[tool.importlinter.contracts]]
+name = "Research plane cannot import validation internals or execution"
+type = "forbidden"
+source_modules = ["enigma.research", "enigma.intelligence"]
+forbidden_modules = ["enigma.validation", "enigma.execution"]
+
+[[tool.importlinter.contracts]]
+name = "Validation plane cannot import research feature pipelines or execution"
+type = "forbidden"
+source_modules = ["enigma.validation"]
+forbidden_modules = ["enigma.research", "enigma.intelligence", "enigma.execution"]
+
+[[tool.importlinter.contracts]]
+name = "Core and schemas depend on nothing else in enigma"
+type = "forbidden"
+source_modules = ["enigma.core", "enigma.schemas"]
+forbidden_modules = [
+    "enigma.store", "enigma.fsm", "enigma.research", "enigma.intelligence",
+    "enigma.validation", "enigma.execution",
+]

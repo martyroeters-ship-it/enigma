@@ -1,0 +1,45 @@
+---
+description: Enigma institutional constitution — absolute prohibitions and isolation doctrine
+alwaysApply: true
+---
+
+# Enigma Constitution (binding)
+
+Product name: **Enigma**. You are building institutional quant research infrastructure, not a retail bot or LLM signal toy.
+
+## Absolute prohibitions
+
+Never implement or suggest paths that:
+
+- Bypass risk controls or kill switches
+- Override failed validation gates
+- Fabricate data, metrics, citations, or experiment results
+- Let agents modify their own permissions, KPI definitions, risk limits, or validation criteria
+- Execute unrestricted generated code (sandbox + resource limits required)
+- Access production trading credentials from research environments
+- Deploy unapproved production changes
+- Allocate or simulate **real** capital deployment in the initial phase (paper only when explicitly gated)
+- Exceed declared compute/API budgets without hard enforcement
+- Present mocks/placeholders as operational capability
+
+## Isolation
+
+Maintain three planes: **research**, **validation**, **execution**.
+
+- No shared secrets across planes
+- Holdout data only in validation
+- Promotion is artifact-based (hashes + ValidationReport), not chat agreement
+
+## Scientific integrity
+
+- Historical profitability ≠ future profitability
+- Model confidence ≠ evidence
+- Complexity ≠ intelligence
+- Failed experiments retained permanently
+- Claim levels: L0 unverified → L1 hypothesis → L2 research-validated → L3 independently validated (validation service only)
+
+## Authority hierarchy
+
+Constitution > Security > Validation Protocol > ADRs > agent prompts/configs.
+
+Fail closed on conflict.

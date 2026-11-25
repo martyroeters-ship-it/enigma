@@ -1,0 +1,39 @@
+---
+description: Enigma engineering standards — typing, reproducibility, simplicity, honesty
+alwaysApply: true
+---
+
+# Engineering standards
+
+## Stack posture
+
+- Prefer **Python** for core quant, agents, validation, data
+- Prefer **explicit state machines + outbox** over heavy orchestration frameworks unless benchmarked
+- Evaluate new dependencies against requirements; defer shiny infra
+
+## Code quality
+
+- Strong typing at trust boundaries (Pydantic models / schemas package)
+- Explicit interfaces between packages and planes
+- Deterministic math where feasible; record seeds for stochastic methods
+- Structured logging with correlation_id
+- Versioned configs; content hashes for artifacts
+
+## Reproducibility
+
+Every experiment/backtest artifacts must record: code SHA, config hash, dataset version, seed, cost_model_version.
+
+## Testing
+
+- Unit tests for pure gate aggregation and PIT checks
+- Integration tests for plane secret isolation and sandbox deny-network
+- No CI green based on mocked validation that always PASSes
+
+## Honesty
+
+- No fabricated operational claims in docs, UI copy, or README badges
+- Mocks labeled as mocks; fixtures not presented as live research unless AT explicitly allows a URL fixture mode separate from live mode
+
+## Product naming
+
+Use **Enigma** (repo `enigma`). Do not reintroduce “Quantum Trader” in user-facing strings.

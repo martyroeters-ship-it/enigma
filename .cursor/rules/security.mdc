@@ -1,0 +1,38 @@
+---
+description: Enigma security — plane isolation, sandboxing, secrets, audit, least privilege
+alwaysApply: true
+---
+
+# Security
+
+## Planes
+
+Tag every worker/service with plane: `research` | `validation` | `execution`.
+
+- Separate credentials, networks, and object-store prefixes per plane
+- Research MUST NOT read validation holdout credentials or execution trading secrets
+- Execution has no live capital keys in initial phase; paper broker only when enabled
+
+## Code execution
+
+- Agent-generated and strategy code runs in sandbox: no outbound network unless explicitly allowlisted for data workers (not strategy sandboxes)
+- CPU/memory/wall-clock limits enforced
+- Strategy runtime: no wall-clock-based signals; event time injected
+
+## Audit & change control
+
+- Append-only audit for FSM transitions, tool calls, secret access denials
+- Kill-switch capability for execution plane
+- Rollbacks for config/methodology version pins
+
+## Least privilege
+
+- Tool gateways enforce role allowlists from RoleContract
+- Agents cannot self-elevate
+- Egress for Intelligence Agent via allowlist; record URL + content hash
+
+## Forbidden shortcuts
+
+- Shared `.env` across planes
+- Disabling sandbox “for debugging” in committed configs
+- Logging secrets or raw exchange keys

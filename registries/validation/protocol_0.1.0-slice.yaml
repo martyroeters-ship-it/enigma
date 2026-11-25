@@ -1,0 +1,42 @@
+# Enigma validation protocol 0.1.0-slice (M1). See docs/VALIDATION_PROTOCOL.md and ADR-013.
+#
+# Human-owned. Agents may read this file; they may never edit it. Changes require a new
+# protocol version + ADR (docs/VALIDATION_PROTOCOL.md §3). The validation service refuses to
+# run if this file's sha256 does not match the hash pinned in enigma.validation.
+#
+# Conservative defaults: every enabled gate is HARD (a FAIL makes overall FAIL). No soft
+# thresholds are used in 0.1.0-slice, so a weak edge cannot pass on a technicality.
+
+protocol_version: "0.1.0-slice"
+required_gates: [G01, G02, G03, G06, G07, G12, G16]
+annualization_periods_per_year: 1095   # 8h bars: 3 per day * 365
+
+gates:
+  G01:
+    name: pit_integrity
+    max_violations: 0                  # any feature timestamp >= decision timestamp fails
+  G02:
+    name: chronological_split
+    holdout_fraction: 0.30             # last 30% of the sample is the sealed holdout
+    min_embargo_bars: 21               # >= 7 days of 8h bars between research and holdout
+    embargo_horizon_multiple: 3        # embargo = max(min_embargo_bars, 3 * label horizon bars)
+  G03:
+    name: out_of_sample
+    min_holdout_net_sharpe: 0.5        # annualized, net of all costs
+    min_holdout_bars: 270              # >= 90 days of 8h bars
+    top_days_removed: 5                # PnL must stay > 0 after removing the 5 best days
+  G06:
+    name: multiple_testing
+    alpha: 0.05
+    correction: holm_bonferroni        # family-wise over all registered trials in the family
+    require_registered_trials: true
+  G07:
+    name: deflated_sharpe
+    min_dsr_probability: 0.95          # Bailey & Lopez de Prado (2014) DSR >= 0.95
+  G12:
+    name: costs
+    cost_stress_multiplier: 2.0        # net Sharpe must stay > 0 with costs doubled
+    min_stressed_net_sharpe: 0.0
+  G16:
+    name: reproducibility
+    max_abs_metric_delta: 1.0e-9       # twin runs must agree to numerical precision
