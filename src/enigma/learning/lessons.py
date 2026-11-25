@@ -36,6 +36,18 @@ def _metric(exps: Sequence[Experiment], key: str) -> list[float]:
     return [e.metrics[key] for e in exps if key in e.metrics]
 
 
+def _mechanism_label(mechanism_id: str, hypothesis: Hypothesis) -> str:
+    """LLM domains are not in the M1 mechanism library; fall back to hypothesis text."""
+    known = MECHANISMS.get(mechanism_id)
+    if known is not None:
+        return known.name
+    for candidate in (hypothesis.mechanism, hypothesis.title, mechanism_id):
+        text = (candidate or "").strip()
+        if text:
+            return text
+    return mechanism_id or "unknown_mechanism"
+
+
 def derive_lessons(ev: CycleEvidence, now: UtcDatetime) -> list[Lesson]:
     done = [e for e in ev.experiments if e.status is ExperimentStatus.SUCCEEDED]
     net = _metric(done, "net_sharpe")
@@ -52,6 +64,7 @@ def derive_lessons(ev: CycleEvidence, now: UtcDatetime) -> list[Lesson]:
     passed = ev.summary is not None and ev.summary.overall is GateOutcome.PASS
     outcome = "success" if passed else "failure"
     lessons: list[Lesson] = []
+    mechanism_name = _mechanism_label(ev.mechanism_id, ev.hypothesis)
 
     def add(tag: str, statement: str, topics: tuple[str, ...], result: str = outcome) -> None:
         lessons.append(
@@ -77,7 +90,7 @@ def derive_lessons(ev: CycleEvidence, now: UtcDatetime) -> list[Lesson]:
     )
     add(
         "outcome",
-        f"{MECHANISMS[ev.mechanism_id].name} on {', '.join(symbols)}: {len(ev.experiments)} "
+        f"{mechanism_name} on {', '.join(symbols)}: {len(ev.experiments)} "
         f"registered trials; research-window net Sharpe best {best:.2f}, median {median:.2f}; "
         f"{verdict}.",
         ("validation_outcome",),
@@ -136,21 +149,22 @@ def propose_next(
     now: UtcDatetime,
 ) -> NextExperimentProposal:
     tags = {t for les in lessons for t in les.topics}
-    mech = MECHANISMS[ev.mechanism_id]
+    mech_name = _mechanism_label(ev.mechanism_id, ev.hypothesis)
+    known = MECHANISMS.get(ev.mechanism_id)
     grid = {k: list(v) for k, v in ev.hypothesis.search_space.items()}
     delta: dict[str, object]
     if "candidate" in tags:
-        mechanism_id = ev.mechanism_id
+        mechanism_id = ev.mechanism_id if known is not None else next(iter(MECHANISMS))
         delta = {"param_grid": grid, "extend": "robustness: later data and second venue"}
         rationale = "Validated under the slice protocol; test robustness before any paper step."
-    elif "cost_fragility" in tags:
+    elif "cost_fragility" in tags and known is not None:
         mechanism_id = ev.mechanism_id
         delta = {"param_grid": _slower(grid)}
         rationale = (
             "Gross edge was eroded by costs; re-test with slower signals (longer "
             "lookbacks, higher entry thresholds) to cut turnover."
         )
-    elif "overfit" in tags or "multiple_testing" in tags:
+    elif ("overfit" in tags or "multiple_testing" in tags) and known is not None:
         mechanism_id = ev.mechanism_id
         delta = {"param_grid": {k: [v[len(v) // 2]] for k, v in grid.items()}}
         rationale = (
@@ -171,7 +185,7 @@ def propose_next(
             "param_grid": {k: list(v) for k, v in MECHANISMS[mechanism_id].param_grid.items()},
         }
         rationale = (
-            f"{mech.name} showed no supported edge; switch to the least-tested "
+            f"{mech_name} showed no supported edge; switch to the least-tested "
             f"mechanism {MECHANISMS[mechanism_id].name}."
         )
     return NextExperimentProposal(
