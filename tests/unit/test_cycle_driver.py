@@ -64,6 +64,10 @@ def test_passing_candidate_gets_risk_veto_while_paper_disabled(tmp_path: Path) -
     assert len(risk) == 1 and risk[0].status is TaskStatus.SUCCEEDED
     assert risk[0].outputs["decision"] == "veto"
     assert "paper_trading_disabled" in risk[0].outputs["reason_codes"]
+    _, state, _ = rig.stores.checkpoints.load(cycle)  # type: ignore[misc]
+    assert state["risk_decision"] == "veto"
+    assert state["risk_review_id"] == risk[0].outputs["review_id"]
+    assert "paper" not in state.get("tasks", {})
 
 
 def test_resume_after_process_restart_does_not_repeat_work(tmp_path: Path) -> None:

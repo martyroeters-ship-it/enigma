@@ -1,0 +1,10 @@
+# Opt-in risk limits for paper-trading drills. Copy/select this file only after
+# HumanRiskAcknowledge exists for a CLEARANCE review. Default production limits
+# remain registries/risk/limits.yaml with paper_trading_enabled: false.
+version: risk-limits-m2-paper-1
+paper_trading_enabled: true
+live_trading_enabled: false # constitutional: never true
+max_gross_leverage: 1.0
+max_sleeve_notional_usd: 100000
+max_drawdown_research: 0.35
+min_holdout_net_sharpe: 0.5

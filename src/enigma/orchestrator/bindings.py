@@ -22,6 +22,7 @@ from enigma.core.errors import (
     PermissionDeniedError,
     ProviderUnavailableError,
 )
+from enigma.execution.paper import PaperBroker
 from enigma.fsm import IMPROVEMENT_PROPOSAL, STRATEGY_LIFECYCLE, StateMachineStore
 from enigma.risk.service import RiskService
 from enigma.schemas.common import Plane
@@ -139,6 +140,25 @@ class CoreTools:
     def risk_evaluate(self, package_id: str, summary_id: str) -> dict[str, Any]:
         return self.risk.evaluate(package_id, summary_id)
 
+    def paper_open_session(
+        self,
+        package_id: str,
+        risk_review_id: str,
+        acknowledge_id: str,
+        notional_usd: float = 10_000.0,
+    ) -> dict[str, Any]:
+        session = PaperBroker(self.stores, self.clock).open_session(
+            package_id=package_id,
+            risk_review_id=risk_review_id,
+            acknowledge_id=acknowledge_id,
+            notional_usd=notional_usd,
+        )
+        return {
+            "session_id": session.id,
+            "status": session.status.value,
+            "equity_usd": session.equity_usd,
+        }
+
 
 def _no_model_gateway(**_: Any) -> Any:
     raise ProviderUnavailableError("no model gateway is configured")
@@ -177,6 +197,12 @@ def build_registry(core: CoreTools, services: Services) -> ToolRegistry:
         ),
         Tool(
             "risk.evaluate", "Risk service decision for a validated package", c, core.risk_evaluate
+        ),
+        Tool(
+            "execution.paper",
+            "Open a paper session after risk CLEARANCE + human acknowledge",
+            Plane.EXECUTION,
+            core.paper_open_session,
         ),
         Tool("intel.research", "Recursive external research", r, services.intel_research),
         Tool(

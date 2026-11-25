@@ -427,7 +427,7 @@ class CycleDriver:
 
     def _from_validation_decided(self, cycle_id: str, state: dict[str, Any]) -> bool:
         if state.get("validation_overall") == "PASS":
-            self._task(
+            risk = self._task(
                 cycle_id,
                 "risk.review",
                 {
@@ -435,6 +435,36 @@ class CycleDriver:
                     "summary_id": state["validation_summary_id"],
                 },
             )
+            state["tasks"]["risk"] = risk.id
+            if (failed := self._failed(risk)) is not None:
+                self.abort(cycle_id, f"risk review failed: {failed.error}")
+                return True
+            if not self._done(risk):
+                self._save(cycle_id, state)
+                return False
+            state["risk_review_id"] = risk.outputs.get("review_id")
+            state["risk_decision"] = risk.outputs.get("decision")
+            # Optional paper open: operator pre-files HumanRiskAcknowledge and sets its id.
+            ack_id = os.environ.get("ENIGMA_PAPER_ACK_ID", "").strip()
+            if state.get("risk_decision") == "clearance" and ack_id:
+                paper = self._task(
+                    cycle_id,
+                    "execution.paper",
+                    {
+                        "package_id": state["candidate_package_id"],
+                        "risk_review_id": state["risk_review_id"],
+                        "acknowledge_id": ack_id,
+                        "notional_usd": float(os.environ.get("ENIGMA_PAPER_NOTIONAL_USD", "10000")),
+                    },
+                )
+                state["tasks"]["paper"] = paper.id
+                if (failed := self._failed(paper)) is not None:
+                    self.abort(cycle_id, f"paper session failed: {failed.error}")
+                    return True
+                if not self._done(paper):
+                    self._save(cycle_id, state)
+                    return False
+                state["paper_session_id"] = paper.outputs.get("session_id")
         meta = self._task(
             cycle_id,
             "meta.reflect_cycle",
