@@ -9,6 +9,7 @@ import pytest
 from cycle_rig import Rig
 
 from enigma.core.errors import PermissionDeniedError
+from enigma.orchestrator.services import OperationalServices
 from enigma.schemas.common import Plane
 from enigma.schemas.validation import ValidationReport
 from enigma.store.documents import PlaneView
@@ -42,8 +43,6 @@ def test_research_roles_cannot_reach_validation_tools(tmp_path: Path) -> None:
 
 
 def test_research_acquisition_cannot_cross_cutoff() -> None:
-    from enigma.orchestrator.services import OperationalServices
-
     svc = OperationalServices.__new__(OperationalServices)
     svc._cutoffs = {("BTCUSDT",): datetime(2024, 6, 1, tzinfo=UTC)}  # type: ignore[attr-defined]
     with pytest.raises(PermissionDeniedError):

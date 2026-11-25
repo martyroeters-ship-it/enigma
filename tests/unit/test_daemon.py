@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import socket
 from pathlib import Path
 from typing import Any
 
@@ -82,9 +84,6 @@ def test_kill_switch_stops_daemon_work(tmp_path: Path) -> None:
 
 
 def test_local_worker_liveness() -> None:
-    import os
-    import socket
-
     assert local_worker_alive(f"{socket.gethostname()}:{os.getpid()}")
     assert not local_worker_alive(f"{socket.gethostname()}:999999")
     assert local_worker_alive("other-host:1")
