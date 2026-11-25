@@ -176,3 +176,65 @@ def test_normalize_remaps_short_evidence_and_dataset() -> None:
     assert fixed.required_data[0].min_lag_bars == 0
     assert fixed.execution_costs.cost_model_version == "cm-binance-usdm-v1"
     assert not check_proposal(fixed, ctx)
+
+
+def test_normalize_aliases_returns_column_onto_perp_close() -> None:
+    """Cached Ollama drafts used column 'returns'; remap onto the sealed PIT panel."""
+    ctx = ResearchContext(
+        id="ctx",
+        objective_id="obj",
+        objective="funding predicts returns",
+        research_cutoff=NOW,
+        instruments=("BTCUSDT",),
+        cost_model_version="cm-binance-usdm-v1",
+        cost_bps_per_unit_turnover=2.0,
+        evidence=(
+            EvidenceExcerpt(
+                id="evid_01AAA",
+                source_id="src",
+                text="funding positive",
+                claim_level="L1",
+                topics=("funding",),
+            ),
+        ),
+        datasets=(
+            DatasetInfo(
+                dataset_version_id="dsv_01REAL",
+                name="binance_perp_funding_8h",
+                frequency="8h",
+                bar_hours=8.0,
+                symbols=("BTCUSDT",),
+                columns=(
+                    "symbol",
+                    "ts",
+                    "available_at",
+                    "perp_open",
+                    "perp_high",
+                    "perp_low",
+                    "perp_close",
+                    "perp_volume",
+                    "spot_close",
+                    "funding_rate",
+                    "basis",
+                ),
+                coverage_start=NOW,
+                coverage_end=NOW,
+                rows=5000,
+            ),
+        ),
+    )
+    draft = _proposal(
+        required_data=[
+            ColumnUse(dataset_id="src_invented", column="returns", role="target", min_lag_bars=1),
+            ColumnUse(dataset_id="src_invented", column="returns", role="target", min_lag_bars=16),
+        ],
+        supporting_evidence_ids=("evid_01AAA", "evid_missing"),
+        contradictory_evidence_ids=(),
+    )
+    fixed = normalize_proposal(draft, ctx)
+    assert fixed.required_data[0].role == "signal"
+    assert fixed.required_data[0].column == "funding_rate"
+    assert all(u.column == "perp_close" for u in fixed.required_data if u.role == "target")
+    assert all(u.dataset_id == "dsv_01REAL" for u in fixed.required_data)
+    assert fixed.supporting_evidence_ids == ("evid_01AAA",)
+    assert not check_proposal(fixed, ctx)

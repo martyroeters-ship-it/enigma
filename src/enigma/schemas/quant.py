@@ -198,7 +198,8 @@ class HypothesisProposal(StrictModel):
     execution_costs: ExecutionCostEstimate
     failure_conditions: NonEmptyStrTuple = Field(min_length=1)
     supporting_evidence_ids: NonEmptyStrTuple = Field(min_length=1)
-    contradictory_evidence_ids: NonEmptyStrTuple = Field(min_length=1)
+    # Empty is allowed: local models often have no genuine contrary citation.
+    contradictory_evidence_ids: tuple[NonEmptyStr, ...] = Field(default=())
     novelty_statement: NonEmptyStr
     complexity_class: ComplexityClass
     complexity_rationale: NonEmptyStr

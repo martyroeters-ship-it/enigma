@@ -179,19 +179,20 @@ class HypothesisGenerator:
         *,
         critique: str | None,
     ) -> tuple[HypothesisProposal, object]:
-        evidence_compact = "\n".join(
-            f"- {e.id}: {(e.text or '')[:180]}" for e in context.evidence[:24]
-        )
+        # Keep the prompt small for local CPUs: too much evidence makes 3b/7b models invent
+        # columns and ignore allowlists.
+        evidence_window = context.evidence[:8]
+        evidence_compact = "\n".join(f"- {e.id}: {(e.text or '')[:160]}" for e in evidence_window)
         columns_by_dataset = "; ".join(
             f"{d.dataset_version_id}=[{', '.join(d.columns)}]" for d in context.datasets
         )
         # Omit bulky evidence/prior bodies from the dump; allowlists are passed explicitly.
         compact = context.model_dump(mode="json")
         compact["evidence"] = [
-            {"id": e["id"], "topics": e.get("topics", []), "text": (e.get("text") or "")[:120]}
-            for e in compact.get("evidence", [])[:24]
+            {"id": e.id, "topics": list(e.topics), "text": (e.text or "")[:120]}
+            for e in evidence_window
         ]
-        compact["prior_hypotheses"] = compact.get("prior_hypotheses", [])[:8]
+        compact["prior_hypotheses"] = compact.get("prior_hypotheses", [])[:4]
         system, user = prompt.render(
             objective=context.objective,
             research_cutoff=context.research_cutoff.isoformat(),
@@ -199,9 +200,9 @@ class HypothesisGenerator:
             cost_model_version=context.cost_model_version,
             dataset_ids=", ".join(d.dataset_version_id for d in context.datasets),
             columns_by_dataset=columns_by_dataset,
-            evidence_ids=", ".join(e.id for e in context.evidence[:40]) or "(none)",
+            evidence_ids=", ".join(e.id for e in evidence_window) or "(none)",
             evidence_compact=evidence_compact or "(none)",
-            context_json=json.dumps(compact, indent=2)[:10000],
+            context_json=json.dumps(compact, indent=2)[:8000],
             critique=critique or "(none)",
         )
         traced = self.llm.generate_traced(
