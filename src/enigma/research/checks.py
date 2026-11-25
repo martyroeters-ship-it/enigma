@@ -93,9 +93,7 @@ def normalize_proposal(
         required.append(use.model_copy(update=updates) if updates else use)
 
     supporting = tuple(eid for eid in proposal.supporting_evidence_ids if eid in evidence_ids)
-    contradictory = tuple(
-        eid for eid in proposal.contradictory_evidence_ids if eid in evidence_ids
-    )
+    contradictory = tuple(eid for eid in proposal.contradictory_evidence_ids if eid in evidence_ids)
     # If the model invented short ids, keep order by remapping ev_N → Nth context evidence.
     if not supporting and proposal.supporting_evidence_ids and context.evidence:
         remapped: list[str] = []
