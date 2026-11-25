@@ -68,6 +68,24 @@ def test_passing_candidate_gets_risk_veto_while_paper_disabled(tmp_path: Path) -
     assert state["risk_decision"] == "veto"
     assert state["risk_review_id"] == risk[0].outputs["review_id"]
     assert "paper" not in state.get("tasks", {})
+    assert "execution.paper" not in {t.kind for t in rig.stores.queue.list(correlation_id=cycle)}
+
+
+def test_paper_ack_env_does_not_bypass_risk_veto(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ENIGMA_PAPER_ACK_ID", "hrack_should_not_open")
+    monkeypatch.setenv("ENIGMA_PAPER_NOTIONAL_USD", "10000")
+    rig = Rig(tmp_path / "c.sqlite3", fail_gate=None)
+    cycle = rig.submit()
+    assert rig.run(cycle) == "COMPLETED"
+    _, state, _ = rig.stores.checkpoints.load(cycle)  # type: ignore[misc]
+    assert state["risk_decision"] == "veto"
+    assert "paper" not in state.get("tasks", {})
+    assert state.get("paper_session_id") is None
+    kinds = {t.kind for t in rig.stores.queue.list(correlation_id=cycle)}
+    assert "risk.review" in kinds
+    assert "execution.paper" not in kinds
 
 
 def test_resume_after_process_restart_does_not_repeat_work(tmp_path: Path) -> None:
