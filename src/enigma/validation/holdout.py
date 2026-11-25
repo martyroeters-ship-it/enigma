@@ -19,6 +19,7 @@ import polars as pl
 from enigma.core.clock import Clock
 from enigma.core.errors import IntegrityError
 from enigma.core.hashing import sha256_of
+from enigma.isolation.hosts import assert_may_open_validation, host_role
 from enigma.schemas.validation import HoldoutManifest, ValidationReport
 from enigma.store.db import Database
 from enigma.store.documents import DocumentStore
@@ -116,6 +117,7 @@ class HoldoutCustody:
     """Owns the validation-plane SQLite DB: holdout manifests and full validation reports."""
 
     def __init__(self, validation_dir: Path) -> None:
+        assert_may_open_validation(host_role())
         validation_dir.mkdir(parents=True, exist_ok=True)
         self.db = Database(validation_dir / VALIDATION_DB_NAME)
         self.documents = DocumentStore(self.db)
