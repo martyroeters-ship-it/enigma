@@ -51,6 +51,7 @@
 <p class="muted">Trials counted: {{ c.validation.trial_count }} · DSR {{ c.validation.deflated_sharpe }} · holdout net Sharpe {{ c.validation.net_sharpe_holdout }} · validator {{ c.validation.validator_build_sha }}</p>
 {% endif %}
 
+{% if c.state.abort_lesson_ids %}<p class="muted">Includes lessons from the abort at this cycle.</p>{% endif %}
 {% if c.lessons %}
 <h2>Lessons stored</h2>
 <ul>{% for l in c.lessons %}<li>{{ l.statement }} <span class="muted">[{{ l.topics|join(', ') }}]</span></li>{% endfor %}</ul>
