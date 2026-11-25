@@ -6,7 +6,8 @@ from datetime import UTC, datetime
 
 from enigma.learning.lessons import CycleEvidence, derive_lessons, propose_next
 from enigma.research.mechanisms import MECHANISMS
-from enigma.schemas.common import AgentRole, Instrument
+from enigma.schemas.common import AgentRole, ClaimLevel, Instrument
+from enigma.schemas.knowledge import Lesson
 from enigma.schemas.research import Hypothesis
 
 NOW = datetime(2026, 3, 1, tzinfo=UTC)
@@ -66,9 +67,6 @@ def test_propose_next_unknown_domain_does_not_reuse_llm_grid() -> None:
         mechanism_id="cryptocurrency",
     )
     # Force the candidate branch tags; unknown domains must still switch.
-    from enigma.schemas.common import ClaimLevel
-    from enigma.schemas.knowledge import Lesson
-
     fake = Lesson(
         id="les_fake",
         statement="passed",

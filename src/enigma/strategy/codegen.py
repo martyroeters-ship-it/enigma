@@ -89,7 +89,10 @@ def _normalize_generated_source(source: str) -> str:
                 for stmt in node.body:
                     if isinstance(stmt, ast.Return) and stmt.value is not None:
                         stmt.value = ast.Call(
-                            func=ast.Attribute(value=ast.Name(id="np", ctx=ast.Load()), attr="clip"),
+                            func=ast.Attribute(
+                                value=ast.Name(id="np", ctx=ast.Load()),
+                                attr="clip",
+                            ),
                             args=[
                                 ast.Call(
                                     func=ast.Attribute(
