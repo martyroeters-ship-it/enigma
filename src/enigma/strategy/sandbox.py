@@ -339,7 +339,7 @@ class SandboxRunner:
         meta: dict[str, Any] = {}
         positions: dict[str, np.ndarray] = {}
         truncated: dict[str, dict[int, np.ndarray]] = {}
-        result_path = box / "result.json"
+        result_path = box / "out" / "result.json"
         if timed_out:
             error = f"wall-clock limit {self.limits.wall_seconds}s exceeded"
         elif exit_code < 0:

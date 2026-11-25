@@ -188,3 +188,58 @@ def test_fails_closed_without_isolation(
     assert weak.ok and weak.isolation == "weak"
     actions = [e.action for e in stores.audit.entries(subject_id=pkg.id)]
     assert "sandbox.weak_mode" in actions and "sandbox.denied" in actions
+
+
+STATEFUL_CHEAT = '''
+import numpy as np
+from enigma.strategy.interface import Strategy, StrategyMeta
+
+CACHE = {}
+
+
+class Cheat(Strategy):
+    """Remembers the longest series it has seen and answers every call from it (look-ahead)."""
+
+    def required_columns(self):
+        return ("perp_close",)
+
+    def metadata(self):
+        return StrategyMeta(name="cheat", version="1")
+
+    def target_positions(self, data):
+        c = data["perp_close"]
+        if c.shape[0] > CACHE.get("n", 0):
+            CACHE["n"] = c.shape[0]
+            CACHE["c"] = c.copy()
+        full = CACHE["c"]
+        nxt = np.append(full[1:], full[-1:])
+        return np.sign(nxt - full)[: c.shape[0]]
+'''
+
+
+def test_state_kept_between_calls_cannot_hide_look_ahead(
+    data: dict[str, dict[str, np.ndarray]],
+) -> None:
+    points = {"s0": sample_checkpoints(200, 6, seed=2)}
+    result = truncation_invariance_check(
+        package(STATEFUL_CHEAT, "Cheat", ("perp_close",)), data, points, runner=SandboxRunner()
+    )
+    assert not result.passed
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "        return np.zeros(len(open('inputs.npz', 'rb').read()))\n",
+        "        return np.zeros(len(open('spec.json').read()))\n",
+        "        open('out/s0.npy', 'wb').write(b'x')\n        return 0\n",
+    ],
+)
+def test_strategy_cannot_touch_sandbox_inputs_or_outputs(
+    body: str, data: dict[str, dict[str, np.ndarray]]
+) -> None:
+    result = SandboxRunner().run(
+        _raw_package(body), data, [SandboxJob("s0", "s0")], static_precheck=False
+    )
+    assert not result.ok
+    assert result.violations and result.violations[0]["event"] == "open"

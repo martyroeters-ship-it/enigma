@@ -337,10 +337,16 @@ class ValidationService:
         p = self.protocol
         package, frame, symbols, seed = x.package, x.frame, x.symbols, x.seed
         names = _dataset_names(symbols)
-        checkpoints: dict[str, tuple[int, ...]] = {}
-        for i, (name, sym) in enumerate(names.items()):
-            n = frame.filter(pl.col("symbol") == sym).height
-            checkpoints[name] = sample_checkpoints(n, TRUNCATION_CHECKPOINTS_PER_SYMBOL, seed + i)
+        # Same seed for every symbol: aligned symbols share checkpoints, so the child's
+        # shortest-first ordering never shows one symbol's later bars before another's earlier.
+        checkpoints = {
+            name: sample_checkpoints(
+                frame.filter(pl.col("symbol") == sym).height,
+                TRUNCATION_CHECKPOINTS_PER_SYMBOL,
+                seed,
+            )
+            for name, sym in names.items()
+        }
 
         run_a = self._run(package, frame, symbols, checkpoints=checkpoints)
         if not run_a.ok:
