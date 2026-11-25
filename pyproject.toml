@@ -104,3 +104,9 @@ forbidden_modules = [
     "enigma.store", "enigma.fsm", "enigma.research", "enigma.intelligence",
     "enigma.validation", "enigma.execution",
 ]
+
+[[tool.importlinter.contracts]]
+name = "Validation gates cannot import the model gateway (no LLM may influence pass/fail)"
+type = "forbidden"
+source_modules = ["enigma.validation"]
+forbidden_modules = ["enigma.gateway"]

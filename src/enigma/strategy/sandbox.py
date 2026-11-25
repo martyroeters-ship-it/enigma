@@ -172,17 +172,18 @@ class SandboxRunner:
         if self.audit is not None:
             self.audit.record(self.actor, action, subject, details)
 
-    def _isolation(self, package: StrategyPackage) -> str:
+    def check_isolation(self, subject_id: str) -> str:
+        """Return the isolation mode ("netns" or "weak"); raise if neither is permitted."""
         if _netns_available():
             return "netns"
         if self.allow_weak:
             self._record(
                 "sandbox.weak_mode",
-                package.id,
+                subject_id,
                 {"reason": "unshare unavailable", "env": ALLOW_WEAK_ENV},
             )
             return "weak"
-        self._record("sandbox.denied", package.id, {"reason": "isolation_unavailable"})
+        self._record("sandbox.denied", subject_id, {"reason": "isolation_unavailable"})
         raise SandboxUnavailableError(
             f"network namespace isolation unavailable; set {ALLOW_WEAK_ENV}=1 only for local dev"
         )
@@ -222,7 +223,7 @@ class SandboxRunner:
                 raise ValueError(f"invalid job {job.job_id!r} / dataset {job.dataset!r}")
         if len({job.job_id for job in jobs}) != len(jobs):
             raise ValueError("job ids must be unique")
-        isolation = self._isolation(package)
+        isolation = self.check_isolation(package.id)
         run_id = new_id("sbx")
         with tempfile.TemporaryDirectory(prefix="enigma-sbx-") as parent_dir:
             result = self._execute(package, datasets, jobs, Path(parent_dir), run_id, isolation)
