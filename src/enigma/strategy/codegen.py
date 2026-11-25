@@ -28,11 +28,18 @@ MAX_ATTEMPTS = 3
 
 
 def _default_params(spec: StrategySpec) -> dict[str, float | int | str]:
-    return {p.name: p.values[0] for p in spec.parameters}
+    """Grid defaults plus top-level cadence fields the model often reads as params."""
+    params: dict[str, float | int | str] = {p.name: p.values[0] for p in spec.parameters}
+    params.setdefault("rebalance_bars", int(spec.rebalance_bars))
+    params.setdefault("holding_bars", int(spec.holding_bars))
+    params.setdefault("label_horizon_bars", int(spec.label_horizon_bars))
+    return params
 
 
 def _normalize_generated_source(source: str) -> str:
     """Mechanical fixes for common LLM slips (not a template strategy body)."""
+    # Models often invent self.inputs; the interface passes columns via the data arg.
+    source = re.sub(r"\bself\.inputs\b", "data", source)
 
     class _Rewriter(ast.NodeTransformer):
         def visit_Call(self, node: ast.Call) -> ast.AST:
@@ -262,8 +269,24 @@ class StrategyCodeGenerator:
         budget: Budget,
         errors: list[str],
     ) -> tuple[GeneratedStrategySource, ModelProvenance]:
+        param_keys = ", ".join(p.name for p in spec.parameters) or "(none)"
+        allowed_params = ", ".join(
+            sorted(
+                {
+                    *(p.name for p in spec.parameters),
+                    "rebalance_bars",
+                    "holding_bars",
+                    "label_horizon_bars",
+                }
+            )
+        )
         system, user = prompt.render(
-            spec_json=json.dumps(spec.model_dump(mode="json"), indent=2)[:10000],
+            spec_json=json.dumps(spec.model_dump(mode="json"), indent=2)[:8000],
+            param_keys=param_keys,
+            allowed_params=allowed_params,
+            required_columns=", ".join(spec.required_columns),
+            rebalance_bars=str(spec.rebalance_bars),
+            holding_bars=str(spec.holding_bars),
             prior_errors="; ".join(errors) if errors else "(none)",
         )
         traced = self.llm.generate_traced(

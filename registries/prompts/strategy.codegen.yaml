@@ -1,5 +1,5 @@
 id: strategy.codegen
-version: "4"
+version: "5"
 methodology: >
   Emit a Python Strategy class for the Enigma bar-strategy interface from a StrategySpec.
   Code must be past-only, position in [-1, 1], and import only the sandbox allowlist.
@@ -12,12 +12,20 @@ system: |
   - Implement exactly required_columns, metadata, target_positions.
   - StrategyMeta(name=..., version="1", hypothesis_id=..., cost_model_version=...). Never pass id=.
   - Only numpy arrays — no pandas. No `.rolling`. Use a Python for-loop or np.cumsum for trailing means.
-  - Only read parameter keys listed in StrategySpec.parameters (self.params.get("NAME", default)).
+  - In target_positions(self, data): read columns from the `data` mapping (e.g. data["funding_rate"]).
+    Never use self.inputs, self.data, or undefined attributes.
+  - Only read self.params keys listed in allowed_params. Prefer self.params.get("NAME", default).
+    Top-level StrategySpec fields are NOT automatically in self.params unless listed.
   - target_positions: past-only, same length as inputs, values in [-1, 1], zeros during warm-up.
   - No network, files, time, or unseeded randomness.
   Fix any prior_errors listed by the caller; change the code accordingly.
 user: |
   Prior errors to fix: {prior_errors}
+
+  required_columns (must match exactly): {required_columns}
+  Grid parameter names: {param_keys}
+  allowed_params for self.params: {allowed_params}
+  Cadence constants (also available via self.params): rebalance_bars={rebalance_bars}, holding_bars={holding_bars}
 
   StrategySpec JSON:
   {spec_json}
