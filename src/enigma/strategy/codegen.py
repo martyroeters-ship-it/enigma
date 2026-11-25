@@ -28,7 +28,12 @@ MAX_ATTEMPTS = 3
 
 
 def _default_params(spec: StrategySpec) -> dict[str, float | int | str]:
-    return {p.name: p.values[0] for p in spec.parameters}
+    """Grid defaults plus schedule fields local models often read from params."""
+    params: dict[str, float | int | str] = {p.name: p.values[0] for p in spec.parameters}
+    params.setdefault("rebalance_bars", spec.rebalance_bars)
+    params.setdefault("holding_bars", spec.holding_bars)
+    params.setdefault("label_horizon_bars", spec.label_horizon_bars)
+    return params
 
 
 def _normalize_generated_source(source: str) -> str:

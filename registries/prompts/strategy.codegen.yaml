@@ -1,5 +1,5 @@
 id: strategy.codegen
-version: "4"
+version: "5"
 methodology: >
   Emit a Python Strategy class for the Enigma bar-strategy interface from a StrategySpec.
   Code must be past-only, position in [-1, 1], and import only the sandbox allowlist.
@@ -9,10 +9,13 @@ system: |
   - Import only: `numpy as np` and `from enigma.strategy.interface import Strategy, StrategyMeta`.
   - Define ONE top-level class that subclasses Strategy. `entrypoint` must be that class name.
   - Do NOT define `__init__`. Read parameters in `configure(self, params)` via `self.params = dict(params)`.
-  - Implement exactly required_columns, metadata, target_positions.
+  - Implement exactly: required_columns(self) -> tuple[str, ...], metadata(self), and
+    target_positions(self, data) where `data` is a Mapping[str, np.ndarray]. Never use
+    `self.inputs` and never omit the `data` argument.
   - StrategyMeta(name=..., version="1", hypothesis_id=..., cost_model_version=...). Never pass id=.
   - Only numpy arrays — no pandas. No `.rolling`. Use a Python for-loop or np.cumsum for trailing means.
-  - Only read parameter keys listed in StrategySpec.parameters (self.params.get("NAME", default)).
+  - Param keys available in self.params: every StrategySpec.parameters name PLUS
+    rebalance_bars, holding_bars, label_horizon_bars. Prefer self.params.get("NAME", default).
   - target_positions: past-only, same length as inputs, values in [-1, 1], zeros during warm-up.
   - No network, files, time, or unseeded randomness.
   Fix any prior_errors listed by the caller; change the code accordingly.
