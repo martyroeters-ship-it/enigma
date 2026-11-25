@@ -1,4 +1,8 @@
-"""Strategy packages: the v1 bar-strategy interface, package building, and the sandbox runner."""
+"""Strategy packages: the v1 bar-strategy interface, package building, and the sandbox runner.
+
+LLM codegen (`enigma.strategy.codegen`) is intentionally not re-exported here so importing
+sandbox/leakage modules (used by validation) never loads the model gateway.
+"""
 
 from enigma.strategy.data import symbol_arrays
 from enigma.strategy.interface import INTERFACE_VERSION, NAT_INT64, Strategy, StrategyMeta
@@ -20,7 +24,6 @@ from enigma.strategy.sandbox import (
     SandboxRunner,
     SandboxUnavailableError,
 )
-from enigma.strategy.codegen import StrategyCodeGenerator
 from enigma.strategy.spec import check_consistency, derive_spec
 from enigma.strategy.static_check import (
     ALLOWED_IMPORTS,
@@ -42,7 +45,6 @@ __all__ = [
     "SandboxUnavailableError",
     "StaticViolation",
     "Strategy",
-    "StrategyCodeGenerator",
     "StrategyMeta",
     "StrategyRejectedError",
     "TruncationCheckResult",

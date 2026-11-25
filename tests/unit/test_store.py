@@ -11,6 +11,7 @@ from enigma.schemas.governance import CostRecord, Reflection, ReflectionOutcome,
 from enigma.schemas.knowledge import Lesson
 from enigma.schemas.validation import RedactedValidationSummary, ValidationReport
 from enigma.store import PlaneView, Stores
+from enigma.store.db import MIGRATIONS
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -172,6 +173,4 @@ def test_reopen_preserves_state(tmp_path: Path) -> None:
     s1.db.close()
     s2 = Stores.open(path)
     assert s2.documents.require(Lesson, "les_1").statement.startswith("Funding")
-    from enigma.store.db import MIGRATIONS
-
     assert s2.db.schema_version == len(MIGRATIONS)
