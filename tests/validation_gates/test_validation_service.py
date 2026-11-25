@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+from datetime import datetime
+
 import polars as pl
 import pytest
 
@@ -181,3 +184,30 @@ def test_holdout_manifest_is_sealed_and_tamper_evident(make_env: EnvFactory) -> 
     with pytest.raises(IntegrityError):
         env.service.validate(request)
     assert env.fsm.state(STRATEGY_LIFECYCLE, pkg.id) == "VALIDATION_QUEUED"
+
+
+class _AvailabilitySource(InMemoryHoldoutSource):
+    """Selects bars the way the data catalog does: `ts >= start and available_at <= end`."""
+
+    def __init__(self, frame: pl.DataFrame) -> None:
+        super().__init__(frame, ("dsv_catalog_like",))
+        self._full = frame
+
+    def available_range(self, symbols: Sequence[str]) -> tuple[datetime, datetime]:
+        return self._full["ts"].min(), self._full["available_at"].max()  # type: ignore[return-value]
+
+    def load_holdout(self, symbols: Sequence[str], start: datetime, end: datetime) -> pl.DataFrame:
+        return self._full.filter(
+            pl.col("symbol").is_in(list(symbols))
+            & (pl.col("ts") >= start)
+            & (pl.col("available_at") <= end)
+        )
+
+
+def test_reseal_with_availability_based_source_keeps_last_bar(make_env: EnvFactory) -> None:
+    frame = make_panel(seed=19, n_bars=1000)
+    env = make_env(frame)
+    env.service.holdout_source = _AvailabilitySource(frame)
+    symbols = ["BTCUSDT", "ETHUSDT"]
+    first = env.service.seal_holdout(symbols)
+    assert env.service.seal_holdout(symbols) == first

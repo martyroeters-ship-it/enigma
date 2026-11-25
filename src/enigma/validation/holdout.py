@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import math
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -149,8 +149,12 @@ class HoldoutCustody:
         if manifest is None:
             start, end = source.available_range(symbols)
         else:
-            start, end = manifest.data_start, manifest.data_end
+            # Sources select bars by availability, and the last bar becomes available one bar
+            # after it opens, so reload one bar past data_end and clip back to the sealed range.
+            start, end = manifest.data_start, manifest.data_end + bar_delta(frequency)
         frame = source.load_holdout(symbols, start, end).sort(["symbol", "ts"])
+        if manifest is not None:
+            frame = frame.filter(pl.col("ts") <= manifest.data_end)
         check_frame(frame, symbols)
         bars = frame.get_column("ts").unique().sort()
         if manifest is None:
@@ -184,3 +188,14 @@ class HoldoutCustody:
 
     def get_report(self, report_id: str) -> ValidationReport | None:
         return self.documents.get(ValidationReport, report_id)
+
+
+_UNITS = {"m": timedelta(minutes=1), "h": timedelta(hours=1), "d": timedelta(days=1)}
+
+
+def bar_delta(frequency: str) -> timedelta:
+    """Bar length for frequencies like "1m", "8h" or "1d"."""
+    count, unit = frequency[:-1], frequency[-1:]
+    if unit not in _UNITS or not count.isdigit() or int(count) < 1:
+        raise ValueError(f"unsupported bar frequency {frequency!r}")
+    return int(count) * _UNITS[unit]
