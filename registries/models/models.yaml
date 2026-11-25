@@ -1,0 +1,246 @@
+# Enigma model registry: providers and model aliases.
+#
+# Keys are NEVER stored here: `api_key_env` names the environment variable(s) read at call time.
+# Model ids and capabilities reflect public documentation known at authoring time; verify them
+# with `python -m enigma.gateway.benchmark` before relying on a model. Changes to this file
+# change the registry version hash recorded on every response.
+#
+# capabilities:
+#   structured_output: json_schema (native schema-constrained output) | json_mode | prompt
+#   tools:             function/tool calling supported
+#   reasoning:         null | openai_effort | openrouter | anthropic_budget | gemini_budget | ollama_think
+#   reasoning_efforts: provider-native effort values the model accepts, lowest first
+#   temperature:       false if the model rejects a temperature parameter
+
+providers:
+  openai:
+    kind: openai
+    base_url: https://api.openai.com/v1
+    base_url_env: OPENAI_BASE_URL
+    api_key_env: [OPENAI_API_KEY]
+    max_tokens_param: max_completion_tokens
+  anthropic:
+    kind: anthropic
+    base_url: https://api.anthropic.com
+    api_key_env: [ANTHROPIC_API_KEY]
+  google:
+    kind: gemini
+    base_url: https://generativelanguage.googleapis.com/v1beta
+    api_key_env: [GEMINI_API_KEY, GOOGLE_API_KEY]
+  openrouter:
+    kind: openai_compatible
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: [OPENROUTER_API_KEY]
+    extra_headers:
+      X-Title: Enigma
+  groq:
+    kind: openai_compatible
+    base_url: https://api.groq.com/openai/v1
+    api_key_env: [GROQ_API_KEY]
+  together:
+    kind: openai_compatible
+    base_url: https://api.together.xyz/v1
+    api_key_env: [TOGETHER_API_KEY]
+  deepseek:
+    kind: openai_compatible
+    base_url: https://api.deepseek.com/v1
+    api_key_env: [DEEPSEEK_API_KEY]
+  mistral:
+    kind: openai_compatible
+    base_url: https://api.mistral.ai/v1
+    api_key_env: [MISTRAL_API_KEY]
+  vllm:
+    kind: openai_compatible
+    base_url_env: VLLM_BASE_URL          # e.g. http://localhost:8000/v1 ; opt-in, no default
+    api_key_env: [VLLM_API_KEY]
+    key_required: false
+    local: true
+    probe_path: /models
+  lmstudio:
+    kind: openai_compatible
+    base_url_env: LMSTUDIO_BASE_URL      # e.g. http://localhost:1234/v1 ; opt-in, no default
+    api_key_env: [LMSTUDIO_API_KEY]
+    key_required: false
+    local: true
+    probe_path: /models
+  ollama:
+    kind: ollama
+    base_url: http://localhost:11434
+    base_url_env: OLLAMA_HOST
+    key_required: false
+    local: true
+    probe_path: /api/version
+    timeout_s: 300
+
+models:
+  # --- OpenAI ---------------------------------------------------------------
+  gpt-5:
+    provider: openai
+    model_id: gpt-5
+    context_window: 400000
+    max_output_tokens: 128000
+    capabilities:
+      structured_output: json_schema
+      tools: true
+      reasoning: openai_effort
+      reasoning_efforts: [minimal, low, medium, high]
+      temperature: false
+  gpt-5-mini:
+    provider: openai
+    model_id: gpt-5-mini
+    context_window: 400000
+    max_output_tokens: 128000
+    capabilities:
+      structured_output: json_schema
+      tools: true
+      reasoning: openai_effort
+      reasoning_efforts: [minimal, low, medium, high]
+      temperature: false
+  gpt-4.1-mini:
+    provider: openai
+    model_id: gpt-4.1-mini
+    context_window: 1047576
+    max_output_tokens: 32768
+    capabilities:
+      structured_output: json_schema
+      tools: true
+
+  # --- Anthropic ------------------------------------------------------------
+  claude-sonnet:
+    provider: anthropic
+    model_id: claude-sonnet-4-5
+    context_window: 200000
+    max_output_tokens: 64000
+    capabilities:
+      structured_output: json_schema   # implemented via a forced tool call
+      tools: true
+      reasoning: anthropic_budget
+  claude-haiku:
+    provider: anthropic
+    model_id: claude-haiku-4-5
+    context_window: 200000
+    max_output_tokens: 64000
+    capabilities:
+      structured_output: json_schema
+      tools: true
+      reasoning: anthropic_budget
+
+  # --- Google ---------------------------------------------------------------
+  gemini-pro:
+    provider: google
+    model_id: gemini-2.5-pro
+    context_window: 1048576
+    max_output_tokens: 65536
+    capabilities:
+      structured_output: json_schema
+      tools: true
+      reasoning: gemini_budget
+      reasoning_efforts: [low, medium, high]   # thinking cannot be disabled
+  gemini-flash:
+    provider: google
+    model_id: gemini-2.5-flash
+    context_window: 1048576
+    max_output_tokens: 65536
+    capabilities:
+      structured_output: json_schema
+      tools: true
+      reasoning: gemini_budget
+      reasoning_efforts: [none, low, medium, high]
+
+  # --- OpenAI-compatible hosted ---------------------------------------------
+  deepseek-chat:
+    provider: deepseek
+    model_id: deepseek-chat
+    context_window: 128000
+    max_output_tokens: 8192
+    capabilities:
+      structured_output: json_mode
+      tools: true
+  deepseek-reasoner:
+    provider: deepseek
+    model_id: deepseek-reasoner
+    context_window: 128000
+    max_output_tokens: 64000
+    capabilities:
+      structured_output: json_mode
+      tools: false
+      temperature: false
+  groq-llama-70b:
+    provider: groq
+    model_id: llama-3.3-70b-versatile
+    context_window: 131072
+    max_output_tokens: 32768
+    capabilities:
+      structured_output: json_mode
+      tools: true
+  together-llama-70b:
+    provider: together
+    model_id: meta-llama/Llama-3.3-70B-Instruct-Turbo
+    context_window: 131072
+    max_output_tokens: 8192
+    capabilities:
+      structured_output: json_schema
+      tools: true
+  mistral-large:
+    provider: mistral
+    model_id: mistral-large-latest
+    context_window: 131072
+    max_output_tokens: 8192
+    capabilities:
+      structured_output: json_schema
+      tools: true
+  openrouter-sonnet:
+    provider: openrouter
+    model_id: anthropic/claude-sonnet-4.5
+    context_window: 200000
+    max_output_tokens: 64000
+    capabilities:
+      structured_output: json_schema
+      tools: true
+      reasoning: openrouter
+      reasoning_efforts: [low, medium, high]
+
+  # --- Local (zero marginal cost; operator hardware) -------------------------
+  local-qwen:
+    provider: ollama
+    model_id: qwen2.5:7b-instruct
+    context_window: 32768
+    max_output_tokens: 8192
+    capabilities:
+      structured_output: json_schema
+      tools: true
+  local-qwen3:
+    provider: ollama
+    model_id: qwen3:8b
+    context_window: 40960
+    max_output_tokens: 16384
+    capabilities:
+      structured_output: json_schema
+      tools: true
+      reasoning: ollama_think
+  local-gpt-oss:
+    provider: ollama
+    model_id: gpt-oss:20b
+    context_window: 131072
+    max_output_tokens: 32768
+    capabilities:
+      structured_output: json_schema
+      tools: true
+      reasoning: ollama_think
+      reasoning_efforts: [low, medium, high]
+  local-vllm:
+    provider: vllm
+    model_id: Qwen/Qwen2.5-7B-Instruct      # must match the model served by VLLM_BASE_URL
+    context_window: 32768
+    max_output_tokens: 8192
+    capabilities:
+      structured_output: json_schema
+      tools: true
+  local-lmstudio:
+    provider: lmstudio
+    model_id: qwen2.5-7b-instruct            # must match the model loaded in LM Studio
+    context_window: 32768
+    max_output_tokens: 8192
+    capabilities:
+      structured_output: json_schema
+      tools: false

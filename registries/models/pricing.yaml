@@ -1,0 +1,74 @@
+# USD per 1M tokens, keyed by <provider>/<model_id> (see models.yaml).
+#
+# ESTIMATES. These figures were transcribed from the providers' public price pages as known at
+# authoring time and have NOT been re-verified against the live pages on the date below. They
+# must be checked and updated (with a new `as_of`) before any budget decision relies on them.
+# Output prices apply to reasoning/thinking tokens too. Local providers (ollama, vllm, lmstudio)
+# are priced at zero and need no entry. A paid model WITHOUT an entry is refused by the gateway
+# because its cost cannot be checked against a budget.
+as_of: 2025-10-01
+currency: USD
+estimate: true
+notice: >-
+  Estimates only; verify against each source URL and update as_of. Long-context tiers,
+  batch discounts, and cache-write surcharges are not modelled.
+prices:
+  openai/gpt-5:
+    input: 1.25
+    output: 10.00
+    cached_input: 0.125
+    source: https://openai.com/api/pricing/
+  openai/gpt-5-mini:
+    input: 0.25
+    output: 2.00
+    cached_input: 0.025
+    source: https://openai.com/api/pricing/
+  openai/gpt-4.1-mini:
+    input: 0.40
+    output: 1.60
+    cached_input: 0.10
+    source: https://openai.com/api/pricing/
+  anthropic/claude-sonnet-4-5:
+    input: 3.00
+    output: 15.00
+    cached_input: 0.30
+    source: https://www.anthropic.com/pricing#api
+  anthropic/claude-haiku-4-5:
+    input: 1.00
+    output: 5.00
+    cached_input: 0.10
+    source: https://www.anthropic.com/pricing#api
+  google/gemini-2.5-pro:
+    input: 1.25        # <=200k-token prompts; longer prompts are billed higher
+    output: 10.00
+    source: https://ai.google.dev/gemini-api/docs/pricing
+  google/gemini-2.5-flash:
+    input: 0.30
+    output: 2.50
+    source: https://ai.google.dev/gemini-api/docs/pricing
+  deepseek/deepseek-chat:
+    input: 0.28
+    output: 0.42
+    cached_input: 0.028
+    source: https://api-docs.deepseek.com/quick_start/pricing
+  deepseek/deepseek-reasoner:
+    input: 0.28
+    output: 0.42
+    cached_input: 0.028
+    source: https://api-docs.deepseek.com/quick_start/pricing
+  groq/llama-3.3-70b-versatile:
+    input: 0.59
+    output: 0.79
+    source: https://groq.com/pricing
+  together/meta-llama/Llama-3.3-70B-Instruct-Turbo:
+    input: 0.88
+    output: 0.88
+    source: https://www.together.ai/pricing
+  mistral/mistral-large-latest:
+    input: 2.00
+    output: 6.00
+    source: https://mistral.ai/pricing#api-pricing
+  openrouter/anthropic/claude-sonnet-4.5:
+    input: 3.00
+    output: 15.00
+    source: https://openrouter.ai/anthropic/claude-sonnet-4.5
