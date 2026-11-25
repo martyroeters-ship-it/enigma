@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import ast
 import json
+import re
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
+import numpy as np
 from pydantic import BaseModel, Field
 
 from enigma.core.ids import new_id
@@ -14,13 +17,82 @@ from enigma.gateway.protocol import StructuredGenerator, provenance_of
 from enigma.schemas.common import AgentRole
 from enigma.schemas.governance import Budget, ExecutionMode, ModelProvenance
 from enigma.schemas.quant import CodegenAttempt, StrategyGenerationRecord, StrategySpec
-from enigma.schemas.research import CostModel
+from enigma.schemas.research import CostModel, StrategyPackage
 from enigma.strategy.package import build_package
+from enigma.strategy.sandbox import SandboxJob, SandboxRunner
 from enigma.strategy.static_check import check_source
 
 PROMPT_ID = "strategy.codegen"
 METHOD = "llm:strategy-codegen-v1"
 MAX_ATTEMPTS = 3
+
+
+def _default_params(spec: StrategySpec) -> dict[str, float | int | str]:
+    return {p.name: p.values[0] for p in spec.parameters}
+
+
+def _normalize_generated_source(source: str) -> str:
+    """Mechanical fixes for common LLM slips (not a template strategy body)."""
+
+    class _Rewriter(ast.NodeTransformer):
+        def visit_Call(self, node: ast.Call) -> ast.AST:
+            self.generic_visit(node)
+            name = node.func.id if isinstance(node.func, ast.Name) else None
+            if name != "StrategyMeta":
+                return node
+            new_keywords: list[ast.keyword] = []
+            for kw in node.keywords:
+                if kw.arg == "id":
+                    new_keywords.append(ast.keyword(arg="hypothesis_id", value=kw.value))
+                else:
+                    new_keywords.append(kw)
+            node.keywords = new_keywords
+            return node
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return source
+    tree = _Rewriter().visit(tree)
+    try:
+        return ast.unparse(tree)
+    except Exception:
+        return re.sub(r"StrategyMeta\(([^)]*?)\bid\s*=", r"StrategyMeta(\1hypothesis_id=", source)
+
+
+def _sandbox_smoke(
+    package: StrategyPackage,
+    required_columns: tuple[str, ...],
+    params: dict[str, Any],
+) -> tuple[str, ...]:
+    """Run a tiny synthetic panel through the sandbox; return error strings or ()."""
+    n = 64
+    rng = np.random.default_rng(0)
+    base = rng.normal(size=n)
+    arrays = {
+        col: (base.copy() if "fund" in col or "rate" in col else 100 + np.cumsum(base * 0.01))
+        for col in required_columns
+    }
+    arrays.setdefault("ts", np.arange(n, dtype=np.int64) * 3_600_000_000_000)
+    data = {
+        "s0": {
+            k: np.asarray(v, dtype=float if k != "ts" else np.int64) for k, v in arrays.items()
+        }
+    }
+    try:
+        result = SandboxRunner().run(package, data, [SandboxJob("smoke", "s0", dict(params))])
+    except Exception as exc:
+        return (str(exc),)
+    if not result.ok:
+        return (result.error or "sandbox smoke failed",)
+    positions = result.positions.get("smoke")
+    if positions is None or len(positions) != n:
+        return ("sandbox smoke returned wrong position length",)
+    if not np.isfinite(positions).all():
+        return ("sandbox smoke produced non-finite positions",)
+    if float(np.nanmax(np.abs(positions))) > 1.0 + 1e-9:
+        return ("sandbox smoke positions outside [-1, 1]",)
+    return ()
 
 
 class GeneratedStrategySource(BaseModel):
@@ -53,6 +125,7 @@ class StrategyCodeGenerator:
         self.model = model
         self.max_output_tokens = max_output_tokens
         self.max_attempts = max_attempts
+        self.last_package: StrategyPackage | None = None
 
     def generate(
         self,
@@ -69,7 +142,10 @@ class StrategyCodeGenerator:
         prompt = self.prompts.get(self.prompt_id)
         attempts: list[CodegenAttempt] = []
         errors: list[str] = []
-        package = None
+        package: StrategyPackage | None = None
+        resolved_params: dict[str, float | int | str | bool] = (
+            dict(params) if params else dict(_default_params(spec))
+        )
 
         for index in range(1, self.max_attempts + 1):
             try:
@@ -88,7 +164,8 @@ class StrategyCodeGenerator:
                 errors = [str(exc)]
                 continue
 
-            violations = check_source(source.source_code, source.entrypoint)
+            normalized = _normalize_generated_source(source.source_code)
+            violations = check_source(normalized, source.entrypoint)
             if violations:
                 detail = tuple(v.describe() for v in violations)
                 attempts.append(
@@ -98,7 +175,7 @@ class StrategyCodeGenerator:
                         source_hash="",
                         stage_reached="static",
                         errors=detail,
-                        provenance=prov if isinstance(prov, ModelProvenance) else None,
+                        provenance=prov,
                     )
                 )
                 errors = list(detail)
@@ -106,9 +183,9 @@ class StrategyCodeGenerator:
 
             try:
                 package = build_package(
-                    source.source_code,
+                    normalized,
                     source.entrypoint,
-                    params or {},
+                    resolved_params,
                     cost_model,
                     spec.hypothesis_id,
                     name=spec.name,
@@ -125,10 +202,26 @@ class StrategyCodeGenerator:
                         source_hash="",
                         stage_reached="static",
                         errors=(str(exc),),
-                        provenance=prov if isinstance(prov, ModelProvenance) else None,
+                        provenance=prov,
                     )
                 )
                 errors = [str(exc)]
+                continue
+
+            smoke_errors = _sandbox_smoke(package, spec.required_columns, resolved_params)
+            if smoke_errors:
+                attempts.append(
+                    CodegenAttempt(
+                        index=index,
+                        entrypoint=source.entrypoint,
+                        source_hash=package.content_hash,
+                        stage_reached="sandbox",
+                        errors=smoke_errors,
+                        provenance=prov,
+                    )
+                )
+                errors = list(smoke_errors)
+                package = None
                 continue
 
             attempts.append(
@@ -138,11 +231,12 @@ class StrategyCodeGenerator:
                     source_hash=package.content_hash,
                     stage_reached="passed",
                     errors=(),
-                    provenance=prov if isinstance(prov, ModelProvenance) else None,
+                    provenance=prov,
                 )
             )
             break
 
+        self.last_package = package
         ok = package is not None
         return StrategyGenerationRecord(
             id=new_id("sgrec"),
@@ -155,7 +249,7 @@ class StrategyCodeGenerator:
             ok=ok,
             package_id=package.id if package else None,
             package_hash=package.content_hash if package else None,
-            checks={"static": ok},
+            checks={"static": ok, "sandbox_smoke": ok},
             failure_reason=None if ok else "codegen_failed_after_repairs",
             created_by=actor,
             created_at=now,
