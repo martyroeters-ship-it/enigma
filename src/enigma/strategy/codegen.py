@@ -38,10 +38,7 @@ def _default_params(spec: StrategySpec) -> dict[str, float | int | str]:
 
 def _uses_numpy_name(tree: ast.AST) -> bool:
     """True when source references bare `np` (typical after `import numpy as np`)."""
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and node.id == "np":
-            return True
-    return False
+    return any(isinstance(node, ast.Name) and node.id == "np" for node in ast.walk(tree))
 
 
 def _imports_numpy(tree: ast.AST) -> bool:
@@ -62,7 +59,8 @@ def _ensure_numpy_import(tree: ast.Module) -> ast.Module:
     import_np = ast.Import(names=[ast.alias(name="numpy", asname="np")])
     # Keep from __future__ first if present; otherwise prepend.
     insert_at = 0
-    if tree.body and isinstance(tree.body[0], ast.ImportFrom) and tree.body[0].module == "__future__":
+    first = tree.body[0] if tree.body else None
+    if isinstance(first, ast.ImportFrom) and first.module == "__future__":
         insert_at = 1
     tree.body.insert(insert_at, import_np)
     return tree
