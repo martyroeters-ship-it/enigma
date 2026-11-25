@@ -41,6 +41,7 @@ from enigma.schemas.research import (
     StrategyPackage,
 )
 from enigma.schemas.validation import (
+    HoldoutManifest,
     RedactedValidationSummary,
     ValidationReport,
     ValidationRequest,
@@ -89,6 +90,7 @@ for _model, _kind, _plane in (
     (MarketAnalysis, "market_analysis", Plane.RESEARCH),
     (NextExperimentProposal, "next_experiment", Plane.CONTROL),
     (RiskReview, "risk_review", Plane.CONTROL),
+    (HoldoutManifest, "holdout_manifest", Plane.VALIDATION),
 ):
     register_kind(_model, _kind, _plane)
 
