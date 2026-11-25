@@ -11,7 +11,7 @@ from cycle_rig import Rig
 
 from enigma.fsm import RESEARCH_CYCLE, RESEARCH_CYCLE_STEPS, STRATEGY_LIFECYCLE
 from enigma.schemas.common import AgentRole, SystemActor
-from enigma.schemas.cycle import NextExperimentProposal
+from enigma.schemas.cycle import NextExperimentProposal, ProposalState
 from enigma.schemas.governance import ImprovementProposal, Reflection, TaskStatus
 from enigma.schemas.knowledge import Lesson
 from enigma.schemas.research import Experiment
@@ -138,3 +138,6 @@ def test_cycle_aborts_without_external_research(tmp_path: Path, missing: str) ->
     rig2 = Rig(tmp_path / "c.sqlite3", fakes=rig.fakes)
     cycle = rig2.submit()
     assert rig2.run(cycle) == "ABORTED"
+    proposals = rig2.stores.documents.list(NextExperimentProposal, where={"parent_cycle_id": cycle})
+    assert len(proposals) == 1
+    assert proposals[0].state is ProposalState.PROPOSED

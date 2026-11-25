@@ -169,6 +169,23 @@ class CycleDriver:
         for les in lessons:
             self.stores.documents.put(les, recorded_by=CIO.value)
         state["abort_lesson_ids"] = [les.id for les in lessons]
+        if lessons and not self.stores.documents.list(
+            NextExperimentProposal, where={"parent_cycle_id": cycle_id}
+        ):
+            mechanism_id = sorted(MECHANISMS)[0]
+            proposal = NextExperimentProposal(
+                id="nxp_" + sha256_hex(f"{cycle_id}|abort")[:26].upper(),
+                parent_cycle_id=cycle_id,
+                parent_hypothesis_id=state.get("hypothesis_id"),
+                mechanism_id=mechanism_id,
+                hypothesis_delta={"mechanism": mechanism_id, "reason": "aborted"},
+                rationale=lessons[0].statement,
+                lesson_ids=(lessons[0].id,),
+                proposed_by=CIO,
+                created_at=self.clock.now(),
+            )
+            self.stores.documents.put(proposal, recorded_by=CIO.value)
+            state["next_proposal_id"] = proposal.id
         self._save(cycle_id, state, "aborted")
         self.stores.audit.record(
             CIO.value,
