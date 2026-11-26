@@ -375,3 +375,50 @@ def test_ollama_native_schema_format(make_gateway: GatewayFactory) -> None:
     assert body["format"]["properties"]["asset"]["type"] == "string"
     assert body["think"] is True
     assert resp.parsed == Signal(asset="SOL")
+
+
+@respx.mock
+def test_ollama_empty_native_json_retries_json_mode(make_gateway: GatewayFactory, ledger) -> None:
+    respx.get(f"{OLLAMA_BASE}/api/version").mock(return_value=httpx.Response(200, json={}))
+    route = respx.post(f"{OLLAMA_BASE}/api/chat").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "model": "llama-test",
+                    "message": {"role": "assistant", "content": ""},
+                    "done_reason": "stop",
+                    "prompt_eval_count": 4,
+                    "eval_count": 0,
+                    "total_duration": 2_000_000_000,
+                },
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "model": "llama-test",
+                    "message": {"role": "assistant", "content": '{"asset": "SOL"}'},
+                    "done_reason": "stop",
+                    "prompt_eval_count": 5,
+                    "eval_count": 3,
+                    "total_duration": 1_000_000_000,
+                },
+            ),
+        ]
+    )
+    resp = make_gateway(env={}).complete(
+        _req(model="local", response_schema=Signal, reasoning_effort=ReasoningEffort.NONE),
+        AgentRole.CIO,
+        "t-json",
+        Budget(max_tokens=100_000),
+    )
+    assert route.call_count == 2
+    first = json.loads(route.calls[0].request.content)
+    second = json.loads(route.calls[1].request.content)
+    assert first["format"]["properties"]["asset"]["type"] == "string"
+    assert second["format"] == "json"
+    assert resp.parsed == Signal(asset="SOL")
+    assert resp.repaired is False
+    totals = ledger.totals()
+    assert totals["cpu_seconds"] == 3.0
+    assert totals["records"] == 2.0

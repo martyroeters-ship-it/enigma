@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from datetime import datetime
 
 from enigma.core.hashing import sha256_hex
+from enigma.research.mechanisms import family_id_for_domain
 from enigma.schemas.common import Actor, Instrument
 from enigma.schemas.quant import GenerationResult, HypothesisProposal, RegisteredHypothesis
 from enigma.schemas.research import Hypothesis
@@ -28,7 +29,7 @@ def hypothesis_from_proposal(
     parent_hypothesis_id: str | None = None,
 ) -> Hypothesis:
     """Map a checked proposal into the document the research cycle already consumes."""
-    family_id = registered.family_id if registered else f"fam_{proposal.domain}"
+    family_id = registered.family_id if registered else family_id_for_domain(proposal.domain)
     hyp_id = (
         registered.hypothesis_id
         if registered

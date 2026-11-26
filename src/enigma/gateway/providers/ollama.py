@@ -25,6 +25,57 @@ _FINISH = {"stop": FinishReason.STOP, "length": FinishReason.LENGTH}
 _MIN_NUM_CTX = 4096
 
 
+def compact_json_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Inline ``$ref`` and drop title noise so Ollama's grammar stays small.
+
+    Property names, types, required fields and descriptions are kept. The native
+    schema test still sees ``properties.<field>.type``.
+    """
+    defs = schema.get("$defs") or schema.get("definitions") or {}
+    annotations = {"title", "$defs", "definitions", "$schema"}
+
+    def resolve(node: Any) -> Any:
+        if isinstance(node, list):
+            return [resolve(item) for item in node]
+        if not isinstance(node, dict):
+            return node
+        if "$ref" in node:
+            name = str(node["$ref"]).rsplit("/", 1)[-1]
+            target = defs.get(name, {})
+            extra = {k: v for k, v in node.items() if k != "$ref"}
+            resolved = resolve(target)
+            if isinstance(resolved, dict):
+                return resolve({**resolved, **extra})
+            return resolved
+        # `properties` keys are field names. A field named title must survive;
+        # only the schema annotation of that name is dropped.
+        properties = node.get("properties")
+        kept: dict[str, Any] = {}
+        for key, value in node.items():
+            if key in annotations:
+                continue
+            if key == "properties" and isinstance(properties, dict):
+                kept[key] = {name: resolve(spec) for name, spec in properties.items()}
+            else:
+                kept[key] = resolve(value)
+        return kept
+
+    resolved = resolve(schema)
+    return resolved if isinstance(resolved, dict) else {}
+
+
+def _structured_messages(call: ProviderCall) -> tuple[list[dict[str, Any]], str | None]:
+    if call.json_schema is None:
+        return [], None
+    schema = compact_json_schema(call.json_schema)
+    caps = call.model.capabilities
+    if call.structured_format == "json" and not call.request.tools:
+        return [{"role": "system", "content": schema_instruction(schema)}], "json"
+    if caps.structured_output is StructuredMode.JSON_SCHEMA and not call.request.tools:
+        return [], "native"
+    return [{"role": "system", "content": schema_instruction(schema)}], "prompt"
+
+
 def ollama_num_ctx(call: ProviderCall) -> int:
     """Context length to request so the prompt is not truncated.
 
@@ -52,16 +103,12 @@ class OllamaAdapter(ProviderAdapter):
         caps = call.model.capabilities
         ignored: list[str] = []
         names = conversation_tool_names(req)
-        messages: list[dict[str, Any]] = []
-        structured_mode: str | None = None
+        messages, structured_mode = _structured_messages(call)
         payload: dict[str, Any] = {"model": call.model.model_id, "stream": False}
-        if call.json_schema is not None:
-            if caps.structured_output is StructuredMode.JSON_SCHEMA and not req.tools:
-                payload["format"] = call.json_schema
-                structured_mode = "native"
-            else:
-                messages.append({"role": "system", "content": schema_instruction(call.json_schema)})
-                structured_mode = "prompt"
+        if call.json_schema is not None and structured_mode == "json":
+            payload["format"] = "json"
+        elif call.json_schema is not None and structured_mode == "native":
+            payload["format"] = compact_json_schema(call.json_schema)
         for m in req.messages:
             if m.role is MessageRole.TOOL:
                 messages.append(
@@ -151,8 +198,17 @@ class OllamaAdapter(ProviderAdapter):
         finish = _FINISH.get(str(raw_finish), FinishReason.OTHER)
         if tool_calls:
             finish = FinishReason.TOOL_CALLS
+        text = message.get("content") or ""
+        if not str(text).strip() and not tool_calls:
+            thinking = message.get("thinking") or ""
+            if isinstance(thinking, str) and thinking.lstrip().startswith(("{", "[")):
+                text = thinking
+        extra: dict[str, Any] = {}
+        total_ns = data.get("total_duration")
+        if isinstance(total_ns, (int, float)) and not isinstance(total_ns, bool) and total_ns > 0:
+            extra["provider_seconds"] = float(total_ns) / 1_000_000_000
         return ProviderResult(
-            text=message.get("content") or "",
+            text=text,
             tool_calls=tool_calls,
             usage=Usage(
                 input_tokens=int(data.get("prompt_eval_count") or 0),
@@ -165,4 +221,5 @@ class OllamaAdapter(ProviderAdapter):
             reasoning_applied=prepared.reasoning_applied,
             ignored=prepared.ignored,
             structured_mode=prepared.structured_mode,
+            extra=extra,
         )

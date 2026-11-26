@@ -94,6 +94,15 @@ class CycleDriver:
         proposal_id: str | None = None,
         created_by: AgentRole | str = CIO,
     ) -> str:
+        existing = self._running_same_statement(statement)
+        if existing is not None:
+            return existing
+        if self.active_cycles():
+            raise ValueError(
+                "a research cycle is already running ("
+                + ", ".join(self.active_cycles())
+                + "); refusing a second writer"
+            )
         now = self.clock.now()
         objective = ResearchObjective(
             id=new_id("obj"),
@@ -130,6 +139,11 @@ class CycleDriver:
 
     def open_objective(self, objective_id: str) -> str:
         """Open a cycle for an objective the scan already stored. Does not place an order."""
+        for cycle_id in self.active_cycles():
+            if self._state(cycle_id).get("objective_id") == objective_id:
+                return cycle_id
+        if self.active_cycles():
+            raise ValueError("a research cycle is already running; refusing a second writer")
         objective = self.stores.documents.require(ResearchObjective, objective_id)
         now = self.clock.now()
         symbols = sorted({item.symbol for item in objective.instruments})
@@ -242,6 +256,52 @@ class CycleDriver:
     def active_cycles(self) -> list[str]:
         return [c["workflow_id"] for c in self.stores.checkpoints.list(WORKFLOW, "running")]
 
+    @staticmethod
+    def _statement_key(statement: str) -> str:
+        return " ".join(statement.split()).casefold()
+
+    def _running_same_statement(self, statement: str) -> str | None:
+        wanted = self._statement_key(statement)
+        for cycle_id in self.active_cycles():
+            objective_id = self._state(cycle_id).get("objective_id")
+            if not objective_id:
+                continue
+            objective = self.stores.documents.get(ResearchObjective, str(objective_id))
+            if objective is not None and self._statement_key(objective.statement) == wanted:
+                return cycle_id
+        return None
+
+    def _reuse_prior_research(self, topic: str, keywords: list[str]) -> dict[str, Any] | None:
+        """Copy a succeeded search for this exact topic instead of repeating the same queries."""
+        wanted = (
+            self._statement_key(topic)
+            + "|"
+            + ",".join(sorted(self._statement_key(k) for k in keywords))
+        )
+        for task in self.stores.queue.list(status=TaskStatus.SUCCEEDED, limit=200):
+            if task.kind != "intelligence.research":
+                continue
+            prior_topic = str(task.inputs.get("topic", ""))
+            prior_keywords = [str(k) for k in task.inputs.get("keywords", [])]
+            key = (
+                self._statement_key(prior_topic)
+                + "|"
+                + ",".join(sorted(self._statement_key(k) for k in prior_keywords))
+            )
+            if key != wanted:
+                continue
+            outputs = dict(task.outputs or {})
+            if not outputs.get("source_ids") or not outputs.get("evidence_ids"):
+                continue
+            if outputs.get("reused_prior_search"):
+                continue
+            outputs["queries"] = ["reused:prior_search"]
+            outputs["http_requests"] = 0
+            outputs["reused_prior_search"] = True
+            outputs["reused_from_task"] = task.id
+            return outputs
+        return None
+
     # ---------------------------------------------------------------- the 13 steps
     def tick(self, cycle_id: str) -> bool:
         """Advance one cycle as far as current task results allow. Returns True on progress."""
@@ -272,7 +332,19 @@ class CycleDriver:
         }
 
     def _from_objective_received(self, cycle_id: str, state: dict[str, Any]) -> bool:
-        intel = self._task(cycle_id, "intelligence.research", self._research_inputs(state))
+        research_inputs = self._research_inputs(state)
+        intel = self._task(cycle_id, "intelligence.research", research_inputs)
+        reused = self._reuse_prior_research(
+            str(research_inputs["topic"]), [str(k) for k in research_inputs["keywords"]]
+        )
+        if reused is not None and intel.status is TaskStatus.PENDING:
+            self.stores.queue.complete(intel.id, reused)
+            self.stores.audit.record(
+                CIO.value,
+                "cycle.research_reused",
+                cycle_id,
+                {"task_id": intel.id, "reused_from_task": reused.get("reused_from_task")},
+            )
         data = self._task(cycle_id, "data.acquire", self._data_inputs(state))
         state["tasks"] = {"intelligence": intel.id, "data": data.id}
         self._advance(
@@ -479,16 +551,18 @@ class CycleDriver:
             "cycle_id": cycle_id,
         }
         strategy_mode = os.environ.get("ENIGMA_STRATEGY_MODE", "").strip().lower()
-        # A check-rejection fallback already registered a library mechanism.
-        # Do not send that package through LLM codegen unless the operator asked.
+        # Hypothesis mode no longer forces unrestricted code generation. A registered
+        # mechanism selected by the model is compiled. Explicit ENIGMA_STRATEGY_MODE=llm
+        # is the only way to code-generate a library mechanism. Recovery stays on the
+        # template path unless the operator set the env var.
         if (
             not strategy_mode
             and not state.get("hypothesis_recovery")
             and os.environ.get("ENIGMA_HYPOTHESIS_MODE", "").strip().lower() == "llm"
         ):
-            strategy_mode = "llm"
-        if strategy_mode == "llm":
-            strategy_inputs["strategy_mode"] = "llm"
+            strategy_mode = "compile"
+        if strategy_mode in {"llm", "compile"}:
+            strategy_inputs["strategy_mode"] = strategy_mode
         impl = self._task(cycle_id, "strategy.implement", strategy_inputs)
         state["tasks"]["strategy"] = impl.id
         if (failed := self._failed(impl)) is not None:

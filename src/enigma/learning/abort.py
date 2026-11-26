@@ -92,6 +92,26 @@ _RULES: tuple[tuple[re.Pattern[str], AbortClass, str, str, tuple[str, ...]], ...
     ),
     (
         re.compile(
+            r"not valid JSON|Expecting value|llm_error:|structured_output|StructuredOutputError",
+            re.I,
+        ),
+        AbortClass.INFRASTRUCTURE,
+        "invalid_model_json",
+        "Retry local structured output in JSON mode, then the next local model on the task "
+        "route. An empty model body is not a missing-evidence failure.",
+        ("model", "json"),
+    ),
+    (
+        re.compile(r"codegen_failed_after_repairs", re.I),
+        AbortClass.INFRASTRUCTURE,
+        "strategy_codegen_failed",
+        "Compile a registered mechanism when the hypothesis names one. Keep unrestricted "
+        "code generation for domain novel, and keep the static or sandbox error from the "
+        "last attempt on the abort reason.",
+        ("codegen", "strategy"),
+    ),
+    (
+        re.compile(
             r"no external sources|no source-backed evidence|intelligence task failed|"
             r"hypothesis task failed",
             re.I,

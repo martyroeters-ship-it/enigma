@@ -10,7 +10,7 @@ import pytest
 from cycle_rig import Rig
 
 from enigma.fsm import RESEARCH_CYCLE, RESEARCH_CYCLE_STEPS, STRATEGY_LIFECYCLE
-from enigma.schemas.common import AgentRole, SystemActor
+from enigma.schemas.common import AgentRole, Instrument, SystemActor
 from enigma.schemas.cycle import NextExperimentProposal, ProposalState
 from enigma.schemas.governance import ImprovementProposal, Reflection, TaskStatus
 from enigma.schemas.knowledge import Lesson
@@ -141,3 +141,32 @@ def test_cycle_aborts_without_external_research(tmp_path: Path, missing: str) ->
     proposals = rig2.stores.documents.list(NextExperimentProposal, where={"parent_cycle_id": cycle})
     assert len(proposals) == 1
     assert proposals[0].state is ProposalState.PROPOSED
+
+
+def test_duplicate_objective_does_not_open_a_second_writer(tmp_path: Path) -> None:
+    rig = Rig(tmp_path / "c.sqlite3")
+    first = rig.submit()
+    assert rig.submit() == first
+    instruments = (
+        Instrument(
+            symbol="BTCUSDT", base="BTC", quote="USDT", kind="perpetual", venue="binance_usdm"
+        ),
+    )
+    with pytest.raises(ValueError, match="already running"):
+        rig.driver.submit_objective("Do option-implied volatilities mean-revert?", instruments)
+
+
+def test_identical_objective_reuses_prior_literature(tmp_path: Path) -> None:
+    rig = Rig(tmp_path / "c.sqlite3")
+    first = rig.submit()
+    assert rig.run(first) == "COMPLETED"
+    second = rig.submit()
+    assert second != first
+    rig.driver.tick(second)
+    state = rig.stores.checkpoints.load(second)[1]
+    intel = rig.stores.queue.get(state["tasks"]["intelligence"])
+    assert intel is not None
+    assert intel.status is TaskStatus.SUCCEEDED
+    assert intel.outputs.get("reused_prior_search") is True
+    assert intel.outputs.get("http_requests") == 0
+    assert intel.outputs["source_ids"]

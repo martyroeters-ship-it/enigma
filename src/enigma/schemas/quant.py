@@ -155,6 +155,32 @@ class ExperimentalDesign(StrictModel):
     train_test_protocol: NonEmptyStr
     primary_metric: NonEmptyStr
 
+    @model_validator(mode="before")
+    @classmethod
+    def _align_grid_size(cls, data: object) -> object:
+        """grid_size is the count of the values already listed.
+
+        Local models often emit a different integer. The search is those values.
+        check_proposal still rejects a product above 24.
+        """
+        if not isinstance(data, dict):
+            return data
+        params = data.get("parameters")
+        if not params:
+            return data
+        size = 1
+        for param in params:
+            if isinstance(param, dict):
+                values = param.get("values")
+            else:
+                values = getattr(param, "values", None)
+            if not values:
+                return data
+            size *= len(values)
+        aligned = dict(data)
+        aligned["grid_size"] = size
+        return aligned
+
     @model_validator(mode="after")
     def _grid_size_consistent(self) -> ExperimentalDesign:
         size = 1

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from enigma.research.mechanisms import MECHANISMS, canonical_domain
 from enigma.schemas.quant import (
     CheckFailure,
     ColumnUse,
@@ -202,6 +203,7 @@ def normalize_proposal(
 
     return proposal.model_copy(
         update={
+            "domain": canonical_domain(proposal.domain),
             "required_data": tuple(required),
             "supporting_evidence_ids": supporting,
             "contradictory_evidence_ids": contradictory,
@@ -219,6 +221,17 @@ def check_proposal(  # noqa: PLR0912 - each gate is an independent explicit fail
 ) -> tuple[CheckFailure, ...]:
     """Return every failed check (empty tuple means the proposal may proceed)."""
     failures: list[CheckFailure] = []
+    domain = canonical_domain(proposal.domain)
+    if domain not in MECHANISMS and domain != "novel":
+        failures.append(
+            CheckFailure(
+                check="registered_mechanism",
+                detail=(
+                    f"domain {proposal.domain!r} is not a registered mechanism "
+                    f"({', '.join(sorted(MECHANISMS))}) or 'novel'"
+                ),
+            )
+        )
     evidence_ids = context.evidence_ids()
     columns = context.columns_by_dataset()
     instruments = frozenset(context.instruments)

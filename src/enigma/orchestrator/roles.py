@@ -23,7 +23,7 @@ from enigma.research.bridge import hypothesis_from_proposal
 from enigma.research.context import build_research_context
 from enigma.research.hybrid import compare_funding_to_returns
 from enigma.research.hypothesis import build_hypothesis, score_mechanisms
-from enigma.research.mechanisms import MECHANISMS
+from enigma.research.mechanisms import MECHANISMS, family_id_for_domain
 from enigma.research.microstructure import METHOD as MICRO_METHOD
 from enigma.research.microstructure import analyze_panel, findings
 from enigma.research.trials import trial_plan
@@ -501,17 +501,26 @@ class QuantResearchAgent(Agent):
         return hyp.model_copy(update={"uncertainty_notes": hyp.uncertainty_notes + notes})
 
 
+def _mechanism_id(family_id: str) -> str:
+    """``fam_fam_cryptocurrency`` and ``fam_funding_carry`` both strip to one id."""
+    return family_id_for_domain(family_id).removeprefix("fam_")
+
+
 class StrategyEngineeringAgent(Agent):
     role = AgentRole.STRATEGY_ENGINEERING
 
     def execute(self, ctx: AgentContext) -> TaskOutcome:
         i = ctx.task.inputs
         hyp = ctx.view.require(Hypothesis, i["hypothesis_id"])
-        mech_id = hyp.family_id.removeprefix("fam_")
-        use_llm = i.get("strategy_mode") == "llm" or mech_id not in MECHANISMS
-        if use_llm:
+        mech_id = _mechanism_id(hyp.family_id)
+        # Explicit ENIGMA_STRATEGY_MODE=llm is the only path that code-generates a
+        # registered mechanism. An LLM hypothesis that names a library mechanism
+        # is compiled from that mechanism's template. Domain "novel" is not in
+        # MECHANISMS, so it still goes through codegen. There is no silent
+        # substitution after a codegen failure.
+        if i.get("strategy_mode") == "llm" or mech_id not in MECHANISMS:
             return self._execute_llm_codegen(ctx)
-        return self._execute_template(ctx)
+        return self._execute_template(ctx, compiled_choice=i.get("strategy_mode") == "compile")
 
     def _execute_llm_codegen(self, ctx: AgentContext) -> TaskOutcome:
         """LLM codegen path. Never falls back to mechanism templates on failure."""
@@ -547,12 +556,12 @@ class StrategyEngineeringAgent(Agent):
             generation_id=raw.get("generation_id"),
         )
 
-    def _execute_template(self, ctx: AgentContext) -> TaskOutcome:
+    def _execute_template(self, ctx: AgentContext, *, compiled_choice: bool = False) -> TaskOutcome:
         i = ctx.task.inputs
         hyp = ctx.view.require(Hypothesis, i["hypothesis_id"])
         dataset = ctx.view.require(DatasetVersion, i["dataset_version_id"])
-        mech = MECHANISMS[hyp.family_id.removeprefix("fam_")]
-        return self._run_trials(
+        mech = MECHANISMS[_mechanism_id(hyp.family_id)]
+        outcome = self._run_trials(
             ctx,
             hyp,
             dataset,
@@ -561,7 +570,23 @@ class StrategyEngineeringAgent(Agent):
             required_columns=mech.features,
             name_prefix=mech.id,
             execution_mode=ExecutionMode.DETERMINISTIC,
+            implementation=(
+                "compiled_registered_mechanism" if compiled_choice else "library_template"
+            ),
         )
+        if compiled_choice and outcome.decisions:
+            decision = outcome.decisions[0]
+            outcome.decisions[0] = DecisionRecord(
+                decision.decision_type,
+                decision.outcome,
+                "compiled_registered_mechanism",
+                "Compiled the registered template for the mechanism the hypothesis "
+                "selected. No unrestricted Python was generated. " + decision.reasoning_summary,
+                input_refs=decision.input_refs,
+                output_refs=decision.output_refs,
+                execution_mode=decision.execution_mode,
+            )
+        return outcome
 
     def _run_trials(
         self,
@@ -575,6 +600,7 @@ class StrategyEngineeringAgent(Agent):
         name_prefix: str,
         execution_mode: ExecutionMode,
         generation_id: str | None = None,
+        implementation: str | None = None,
     ) -> TaskOutcome:
         plan = trial_plan(hyp)
         experiments: list[Experiment] = []
@@ -732,6 +758,8 @@ class StrategyEngineeringAgent(Agent):
         }
         if generation_id:
             outputs["generation_id"] = generation_id
+        if implementation:
+            outputs["implementation"] = implementation
         return TaskOutcome(
             outputs=outputs,
             decisions=[

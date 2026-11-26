@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from enigma.core import new_id, sha256_of
 from enigma.schemas.common import AgentRole, ClaimLevel, Instrument, SystemActor
 from enigma.schemas.messages import MessageEnvelope, MessageType
+from enigma.schemas.quant import ExperimentalDesign, ParameterGrid
 from enigma.schemas.research import Hypothesis
 from enigma.schemas.validation import GateOutcome, GateResult, ValidationReport, aggregate
 
@@ -122,3 +123,20 @@ def test_envelope_hash_must_match_payload() -> None:
             payload=payload,
             payload_hash=sha256_of({"tampered": True}),
         )
+
+
+def test_grid_size_is_the_product_of_the_listed_values() -> None:
+    design = ExperimentalDesign(
+        parameters=(ParameterGrid(name="W", values=(4, 8)),),
+        grid_size=2,
+        train_test_protocol="expanding",
+        primary_metric="net_sharpe",
+    )
+    assert design.grid_size == 2
+    mismatched = ExperimentalDesign(
+        parameters=(ParameterGrid(name="W", values=(4, 8)),),
+        grid_size=9,
+        train_test_protocol="expanding",
+        primary_metric="net_sharpe",
+    )
+    assert mismatched.grid_size == 2
