@@ -32,6 +32,7 @@ class Task(StrictModel):
     error: str | None = None
     attempts: int = 0
     max_attempts: int = Field(default=3, ge=1)
+    not_before: UtcDatetime | None = None
     created_at: UtcDatetime
     updated_at: UtcDatetime
 

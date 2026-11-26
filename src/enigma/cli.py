@@ -163,6 +163,15 @@ def up() -> None:
     typer.echo(f"Ollama {version}; spend cap $0; paper and live trading off")
     typer.echo(f"strategy sandbox: {mode}")
     typer.echo(f"hypothesis mode {os.environ.get('ENIGMA_HYPOTHESIS_MODE')}")
+    schedule = daemon.schedule
+    if schedule.continuous and schedule.max_cycles_per_day <= 0:
+        typer.echo(
+            "continuous research: on; no daily cycle cap; "
+            f"{schedule.max_concurrent_cycles} cycle at a time; "
+            "the backlog opens the next objective"
+        )
+    else:
+        typer.echo(f"continuous research: off; daily cycle cap {schedule.max_cycles_per_day}")
 
     def _progress(iteration: int, status: str) -> None:
         typer.echo(f"step {iteration}: {status}")

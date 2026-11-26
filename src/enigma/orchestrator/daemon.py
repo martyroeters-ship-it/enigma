@@ -52,6 +52,15 @@ class Schedule:
     tech_scan_interval_hours: float
     tech_scan_topics: tuple[str, ...]
     market_scan_interval_hours: float = 0.0
+    # continuous opens the next ranked backlog item with no daily count. 0 on
+    # max_cycles_per_day means the same: no daily count. A positive count remains
+    # a hard cap for tests and for a one-shot `enigma research` session.
+    continuous: bool = False
+    min_free_memory_mb: int = 512
+    review_interval_hours: float = 24.0
+    literature_interval_hours: float = 6.0
+    consolidation_interval_hours: float = 12.0
+    diminishing_returns_min_cycles: int = 3
 
     @classmethod
     def load(cls, path: Path) -> Schedule:
@@ -65,6 +74,12 @@ class Schedule:
             tech_scan_interval_hours=float(raw["tech_scan_interval_hours"]),
             tech_scan_topics=tuple(raw.get("tech_scan_topics", [])),
             market_scan_interval_hours=float(raw.get("market_scan_interval_hours", 0)),
+            continuous=bool(raw.get("continuous", False)),
+            min_free_memory_mb=int(raw.get("min_free_memory_mb", 512)),
+            review_interval_hours=float(raw.get("review_interval_hours", 24)),
+            literature_interval_hours=float(raw.get("literature_interval_hours", 6)),
+            consolidation_interval_hours=float(raw.get("consolidation_interval_hours", 12)),
+            diminishing_returns_min_cycles=int(raw.get("diminishing_returns_min_cycles", 3)),
         )
 
 
@@ -90,6 +105,9 @@ class Daemon:
         self.worker_name = inst.worker.worker_id
         self._last_beat: datetime | None = None
         self.guidance_penalty: Callable[[Candidate], tuple[float, tuple[str, ...]]] | None = None
+        self._until_idle = False
+        self._isolation_until: datetime | None = None
+        self._isolation_block = ""
 
     # ------------------------------------------------------------------ lifecycle
     def install_signal_handlers(self) -> None:
@@ -176,7 +194,12 @@ class Daemon:
         with self._heartbeat_pulse():
             task = self.inst.worker.run_once()
         progressed |= task is not None
-        progressed |= self._chain_next_experiments()
+        if self.schedule.continuous and not self._until_idle:
+            progressed |= self._continuous_start()
+            progressed |= self._schedule_literature()
+            progressed |= self._schedule_review()
+        else:
+            progressed |= self._chain_next_experiments()
         progressed |= self._schedule_tech_scan()
         progressed |= self._schedule_market_scan()
         # force: a pulse may have written moments ago, and that must not swallow
@@ -192,6 +215,7 @@ class Daemon:
     ) -> int:
         lock = self._acquire_writer_lock()
         iterations = 0
+        self._until_idle = until_idle
         try:
             requeued = self.startup()
             if on_step is not None:
@@ -239,23 +263,66 @@ class Daemon:
             handle.close()
 
     # ------------------------------------------------------------------ schedules
+    def _cycles_today(self) -> int:
+        now = self.inst.clock.now()
+        since = (now - timedelta(days=1)).isoformat()
+        return self.inst.fsm.created_since(RESEARCH_CYCLE, since)
+
+    def _slot_open(self) -> tuple[bool, str]:
+        if len(self.inst.driver.active_cycles()) >= self.schedule.max_concurrent_cycles:
+            return False, "a research cycle is already running"
+        cap = self.schedule.max_cycles_per_day
+        if cap > 0 and self._cycles_today() >= cap:
+            return False, f"daily cycle cap {cap} reached"
+        if self.schedule.continuous and not self._until_idle:
+            reason = self._resource_block()
+            if reason:
+                return False, reason
+        return True, ""
+
+    def _resource_block(self) -> str:
+        from enigma.orchestrator.host import available_memory_mb  # noqa: PLC0415
+        from enigma.strategy.sandbox import (  # noqa: PLC0415
+            SandboxRunner,
+            SandboxUnavailableError,
+        )
+
+        free = available_memory_mb()
+        floor = self.schedule.min_free_memory_mb
+        if free is not None and free < floor:
+            return f"memory pressure: {free:.0f} MiB available, floor {floor} MiB"
+        now = self.inst.clock.now()
+        if self._isolation_until is not None and now < self._isolation_until:
+            return self._isolation_block
+        try:
+            SandboxRunner(allow_weak=False).check_isolation("continuous")
+        except SandboxUnavailableError as exc:
+            self._isolation_block = str(exc)[:400]
+            self._isolation_until = now + timedelta(seconds=15)
+            return self._isolation_block
+        self._isolation_block = ""
+        self._isolation_until = now + timedelta(seconds=60)
+        return ""
+
+    def _remaining_slots(self) -> float:
+        cap = self.schedule.max_cycles_per_day
+        if cap <= 0:
+            return 1_000_000.0
+        return float(max(cap - self._cycles_today(), 0))
+
     def _chain_next_experiments(self) -> bool:
         if not self.schedule.auto_next_experiment:
             return False
-        if len(self.inst.driver.active_cycles()) >= self.schedule.max_concurrent_cycles:
-            return False
-        now = self.inst.clock.now()
-        since = (now - timedelta(days=1)).isoformat()
-        if self.inst.fsm.created_since(RESEARCH_CYCLE, since) >= self.schedule.max_cycles_per_day:
+        open_slot, _reason = self._slot_open()
+        if not open_slot:
             return False
         docs = self.inst.stores.documents
-        created_today = self.inst.fsm.created_since(RESEARCH_CYCLE, since)
         candidates = proposal_candidates(self.inst.stores)
         if not candidates:
             return False
         inputs = build_inputs(
             read_record(self.inst.stores),
-            remaining_budget=float(self.schedule.max_cycles_per_day - created_today),
+            remaining_budget=self._remaining_slots(),
             guidance_penalty=self.guidance_penalty,
         )
         agenda = ResearchPrioritizer().rank(candidates, inputs)
@@ -287,6 +354,210 @@ class Daemon:
             {"proposal_id": proposal.id, "parent_cycle_id": proposal.parent_cycle_id},
         )
         return True
+
+    def _continuous_start(self) -> bool:
+        """Open the highest-value backlog item. No daily count, no pause between cycles."""
+        from enigma.orchestrator.backlog import BacklogPolicy, research_agenda  # noqa: PLC0415
+
+        open_slot, reason = self._slot_open()
+        policy = BacklogPolicy(
+            diminishing_returns_min_cycles=self.schedule.diminishing_returns_min_cycles
+        )
+        agenda = research_agenda(
+            self.inst.stores,
+            inputs_budget=self._remaining_slots(),
+            policy=policy,
+        )
+        chosen = allocate(agenda, capacity=1, technology_share=0.0) if open_slot else ()
+        self._record_cio_decision(agenda, chosen)
+        self._publish_operations(agenda, reason if not open_slot else "")
+        if not open_slot or not chosen:
+            return False
+        candidate = chosen[0].candidate
+        if candidate.kind == "next_experiment" and candidate.proposal_id:
+            return self._open_proposal(candidate.proposal_id)
+        if candidate.kind == "market_scan":
+            try:
+                self.inst.driver.open_objective(candidate.id)
+            except (KeyError, ValueError):
+                return False
+            return True
+        if candidate.kind == "opportunity" and len(candidate.refs) == 3:
+            return self._open_opportunity(candidate.refs)
+        return False
+
+    def _open_proposal(self, proposal_id: str) -> bool:
+        docs = self.inst.stores.documents
+        proposal = docs.require(NextExperimentProposal, proposal_id)
+        parent = self.inst.stores.checkpoints.load(proposal.parent_cycle_id)
+        if parent is None:
+            return False
+        objective = docs.require(ResearchObjective, parent[1]["objective_id"])
+        child = self.inst.driver.submit_objective(
+            objective.statement,
+            objective.instruments,
+            objective.topics,
+            max_trials=objective.max_trials,
+            proposal_id=proposal.id,
+            created_by=AgentRole.META_LEARNING,
+        )
+        docs.put(
+            proposal.model_copy(update={"state": ProposalState.SCHEDULED, "child_cycle_id": child}),
+            recorded_by=CIO.value,
+        )
+        self.inst.stores.audit.record(
+            CIO.value,
+            "cycle.chained",
+            child,
+            {"proposal_id": proposal.id, "parent_cycle_id": proposal.parent_cycle_id},
+        )
+        return True
+
+    def _open_opportunity(self, refs: tuple[str, ...]) -> bool:
+        from enigma.orchestrator.institution import perp  # noqa: PLC0415
+        from enigma.research.mechanisms import MECHANISMS  # noqa: PLC0415
+
+        mechanism_id, symbol, horizon = refs
+        mechanism = MECHANISMS[mechanism_id]
+        statement = (
+            f"Does {mechanism.name} show a gross edge on {symbol} perpetuals at a "
+            f"{horizon} horizon before trading costs? Direction {mechanism_id}|{symbol}|{horizon}."
+        )
+        try:
+            cycle_id = self.inst.driver.submit_objective(
+                statement,
+                (perp(symbol),),
+                (mechanism_id, symbol, horizon, "continuous-backlog"),
+                max_trials=9,
+                created_by=CIO,
+            )
+        except ValueError:
+            return False
+        self.inst.stores.audit.record(
+            CIO.value,
+            "cycle.backlog_opened",
+            cycle_id,
+            {"mechanism": mechanism_id, "symbol": symbol, "horizon": horizon},
+        )
+        return True
+
+    def _publish_operations(self, agenda: Agenda, pause_reason: str) -> None:
+        import json  # noqa: PLC0415
+
+        from enigma.orchestrator.host import available_memory_mb  # noqa: PLC0415
+
+        free = available_memory_mb()
+        payload = {
+            "mode": "continuous",
+            "max_cycles_per_day": self.schedule.max_cycles_per_day,
+            "max_concurrent_cycles": self.schedule.max_concurrent_cycles,
+            "active_cycles": self.inst.driver.active_cycles(),
+            "pause_reason": pause_reason,
+            "memory_available_mb": None if free is None else round(free, 1),
+            "memory_floor_mb": self.schedule.min_free_memory_mb,
+            "backlog": [
+                {
+                    "id": item.candidate.id,
+                    "kind": item.candidate.kind,
+                    "summary": item.candidate.summary[:240],
+                    "score": item.score,
+                    "viable": item.viable,
+                    "reasons": list(item.reasons),
+                }
+                for item in agenda.ranked
+                if item.viable or item.reasons
+            ][:24],
+        }
+        self.inst.stores.flags.set("operations.snapshot", json.dumps(payload), "system")
+
+    def _schedule_literature(self) -> bool:
+        if self.inst.driver.active_cycles() or self.schedule.literature_interval_hours <= 0:
+            return False
+        if not self.schedule.tech_scan_topics and not self.schedule.continuous:
+            return False
+        now = self.inst.clock.now()
+        window = int(now.timestamp() // (self.schedule.literature_interval_hours * 3600))
+        topics = list(self.schedule.tech_scan_topics) or [
+            "crypto perpetual funding rate",
+            "basis mean reversion",
+            "market microstructure research",
+        ]
+        request = TaskRequest(
+            "tech.scan",
+            AgentRole.TECHNOLOGY_INNOVATION,
+            {"topics": topics, "max_sources": 6},
+            idempotency_key=f"literature-{window}",
+        )
+        before = self.inst.stores.queue.counts().get("pending", 0)
+        delegate(
+            self.inst.stores.queue,
+            self.inst.bus,
+            self.inst.driver.cmap,
+            CIO,
+            request,
+            correlation_id=f"sched_literature_{window}",
+        )
+        return self.inst.stores.queue.counts().get("pending", 0) > before
+
+    def _schedule_review(self) -> bool:
+        from enigma.fsm import IMPROVEMENT_PROPOSAL  # noqa: PLC0415
+        from enigma.learning.review import review_institution  # noqa: PLC0415
+        from enigma.schemas.governance import ImprovementProposal, Reflection  # noqa: PLC0415
+        from enigma.schemas.knowledge import Lesson  # noqa: PLC0415
+
+        now = self.inst.clock.now()
+        changed = False
+        if self.schedule.review_interval_hours > 0:
+            window = int(now.timestamp() // (self.schedule.review_interval_hours * 3600))
+            flag = f"institution-review:{window}"
+            if self.inst.stores.flags.get(flag) is None:
+                proposals = review_institution(
+                    self.inst.stores.documents.list(Reflection, limit=2000),
+                    self.inst.stores.documents.list(Lesson, limit=2000),
+                    (),
+                    now,
+                    window_key=f"review-{window}",
+                )
+                for proposal in proposals:
+                    if self.inst.stores.documents.get(ImprovementProposal, proposal.id) is None:
+                        self.inst.stores.documents.put(proposal, recorded_by="meta_learning")
+                    if self.inst.fsm.state(IMPROVEMENT_PROPOSAL, proposal.id) is None:
+                        self.inst.fsm.create(
+                            IMPROVEMENT_PROPOSAL,
+                            proposal.id,
+                            "meta_learning",
+                            reason_code="proposed",
+                        )
+                self.inst.stores.flags.set(flag, str(len(proposals)), "system")
+                changed = True
+        if self.schedule.consolidation_interval_hours > 0:
+            window = int(now.timestamp() // (self.schedule.consolidation_interval_hours * 3600))
+            flag = f"knowledge-consolidation:{window}"
+            if self.inst.stores.flags.get(flag) is None:
+                lessons = self.inst.stores.documents.list(Lesson, limit=2000)
+                self.inst.stores.documents.put(
+                    AgentDecision(
+                        id="dec_cons_" + sha256_hex(flag)[:22],
+                        agent=CIO,
+                        task_id=None,
+                        decision_type="knowledge_consolidation",
+                        outcome=f"{len(lessons)} lessons",
+                        reason_code="scheduled_review",
+                        reasoning_summary=(
+                            f"Consolidated {len(lessons)} stored lessons. No lesson was deleted. "
+                            "Directions with a completed validation stay closed unless a lesson "
+                            "records a positive gross edge destroyed by costs."
+                        ),
+                        input_refs=tuple(les.id for les in lessons[:30]),
+                        output_refs=(),
+                        instructions_version="consolidation-1",
+                        created_at=now,
+                    ),
+                    recorded_by=CIO.value,
+                )
+                self.inst.stores.flags.set(flag, "done", "system")
+                changed = True
+        return changed
 
     def _record_cio_decision(self, agenda: Agenda, chosen: tuple[ScoredCandidate, ...]) -> None:
         lines = [
@@ -352,11 +623,12 @@ class Daemon:
         return created or opened
 
     def _open_scan_objective(self) -> bool:
+        if self.schedule.continuous and not self._until_idle:
+            return False
         if len(self.inst.driver.active_cycles()) >= self.schedule.max_concurrent_cycles:
             return False
-        now = self.inst.clock.now()
-        since = (now - timedelta(days=1)).isoformat()
-        if self.inst.fsm.created_since(RESEARCH_CYCLE, since) >= self.schedule.max_cycles_per_day:
+        cap = self.schedule.max_cycles_per_day
+        if cap > 0 and self._cycles_today() >= cap:
             return False
         reports = self.inst.stores.documents.list(MarketScanReport, limit=1)
         if not reports or not reports[0].objective_id:

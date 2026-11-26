@@ -39,6 +39,7 @@ def create_app(settings: Settings | None = None, stores: Stores | None = None) -
             machines=rm.machines(),
             costs=rm.costs(),
             decisions=rm.decisions(15),
+            operations=rm.operations(),
         )
 
     @app.get("/cycles/{cycle_id}", response_class=HTMLResponse)
@@ -80,6 +81,10 @@ def create_app(settings: Settings | None = None, stores: Stores | None = None) -
     @app.get("/audit", response_class=HTMLResponse)
     def audit(request: Request) -> HTMLResponse:
         return page(request, "audit.html", entries=rm.audit(), costs=rm.costs())
+
+    @app.get("/api/operations")
+    def api_operations() -> dict[str, Any]:
+        return rm.operations()
 
     @app.get("/api/health")
     def api_health() -> dict[str, Any]:

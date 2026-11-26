@@ -82,6 +82,9 @@ def derive_lessons(ev: CycleEvidence, now: UtcDatetime) -> list[Lesson]:
 
     best = max(net) if net else float("nan")
     median = statistics.median(net) if net else float("nan")
+    best_gross = max(gross) if gross else float("nan")
+    median_gross = statistics.median(gross) if gross else float("nan")
+    gross_state = "unknown" if not gross else ("positive" if best_gross > 0 else "absent")
     verdict = (
         f"independent validation {ev.summary.overall.value}"
         + (f" (failed: {', '.join(sorted(failed))})" if failed else "")
@@ -92,7 +95,12 @@ def derive_lessons(ev: CycleEvidence, now: UtcDatetime) -> list[Lesson]:
         "outcome",
         f"{mechanism_name} on {', '.join(symbols)}: {len(ev.experiments)} "
         f"registered trials; research-window net Sharpe best {best:.2f}, median {median:.2f}; "
-        f"{verdict}.",
+        + (
+            f"gross Sharpe best {best_gross:.2f}, median {median_gross:.2f}; "
+            if gross
+            else "gross Sharpe was not recorded; "
+        )
+        + f"{verdict}.",
         ("validation_outcome",),
     )
 
@@ -104,18 +112,36 @@ def derive_lessons(ev: CycleEvidence, now: UtcDatetime) -> list[Lesson]:
             "parameters.",
             ("no_signal",),
         )
-    if gross and net and statistics.median(gross) > 0 >= median:
+    # A failed cost gate is not evidence that costs removed an edge. That claim
+    # requires a positive gross Sharpe that the net result then loses.
+    if gross_state == "positive" and net and median <= 0:
         add(
             "cost_fragility",
-            f"Median gross Sharpe {statistics.median(gross):.2f} turns to {median:.2f} net: "
+            f"Median gross Sharpe {median_gross:.2f} turns to {median:.2f} net: "
             f"costs dominate at median turnover {statistics.median(turnover or [0]):.0f}x/yr.",
             ("cost_fragility",),
         )
-    elif "costs" in failed:
+    elif gross_state == "positive" and "costs" in failed:
         add(
             "cost_fragility",
-            "The strategy did not survive doubled costs on the holdout (G12).",
+            "A positive gross Sharpe did not survive doubled costs on the holdout (G12).",
             ("cost_fragility",),
+        )
+    elif gross_state == "absent":
+        add(
+            "absent_gross_edge",
+            f"No trial had a positive research-window gross Sharpe (best {best_gross:.2f}, "
+            f"median {median_gross:.2f}). Trading costs did not remove an edge; the gross "
+            "result was already negative"
+            + (" and the cost-stress gate also failed." if "costs" in failed else "."),
+            ("absent_gross_edge",),
+        )
+    elif "costs" in failed:
+        add(
+            "cost_stress_inconclusive",
+            "The cost-stress gate failed and gross Sharpe was not recorded, so this is not "
+            "evidence that transaction costs destroyed a profitable edge.",
+            ("cost_stress_inconclusive",),
         )
     if net and best > 0.5 and ({"out_of_sample", "deflated_sharpe"} & failed):
         add(
@@ -183,10 +209,24 @@ def propose_next(
         rationale = "Validated under the slice protocol; test robustness before any paper step."
     elif "cost_fragility" in tags:
         mechanism_id = ev.mechanism_id
-        delta = {"param_grid": _slower(grid)}
+        delta = {
+            "param_grid": _slower(grid),
+            "revisit": "positive_gross_destroyed_by_costs",
+        }
         rationale = (
-            "Gross edge was eroded by costs; re-test with slower signals (longer "
-            "lookbacks, higher entry thresholds) to cut turnover."
+            "A positive gross Sharpe was lost after costs; re-test with slower signals "
+            "(longer lookbacks, higher entry thresholds) to cut turnover."
+        )
+    elif "absent_gross_edge" in tags:
+        mechanism_id = _least_tested_mechanism(tested_mechanisms, exclude=ev.mechanism_id)
+        delta = {
+            "mechanism": mechanism_id,
+            "param_grid": {k: list(v) for k, v in MECHANISMS[mechanism_id].param_grid.items()},
+        }
+        rationale = (
+            f"{mech_name} had no positive gross Sharpe, so trading costs did not remove an "
+            f"edge and slowing the signal would not create one. Switch to the least-tested "
+            f"mechanism {MECHANISMS[mechanism_id].name}."
         )
     elif "overfit" in tags or "multiple_testing" in tags:
         mechanism_id = ev.mechanism_id

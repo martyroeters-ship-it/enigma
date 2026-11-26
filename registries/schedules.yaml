@@ -6,8 +6,16 @@ poll_interval_seconds: 2
 heartbeat_seconds: 15
 # Chain the meta-learning agent's next-experiment proposal into a child research cycle.
 auto_next_experiment: true
-max_cycles_per_day: 4
+# 0 means no daily count. New cycles are gated by concurrency, memory, and sandbox
+# isolation. A positive number is a hard cap (kept for tests and one-shot sessions).
+max_cycles_per_day: 0
 max_concurrent_cycles: 1
+continuous: true
+min_free_memory_mb: 512
+review_interval_hours: 24
+literature_interval_hours: 6
+consolidation_interval_hours: 12
+diminishing_returns_min_cycles: 3
 # Technology Innovation scan of new tools/papers relevant to the stack.
 tech_scan_interval_hours: 24
 tech_scan_topics:

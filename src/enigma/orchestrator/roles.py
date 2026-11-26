@@ -904,7 +904,13 @@ class MetaLearningAgent(Agent):
             suspected_systemic_issue=next(
                 (
                     t
-                    for t in ("cost_fragility", "overfit", "multiple_testing", "no_signal")
+                    for t in (
+                        "absent_gross_edge",
+                        "cost_fragility",
+                        "overfit",
+                        "multiple_testing",
+                        "no_signal",
+                    )
                     if any(t in les.topics for les in lessons)
                 ),
                 None,
