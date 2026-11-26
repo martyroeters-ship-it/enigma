@@ -41,6 +41,7 @@ from enigma.core.hashing import sha256_hex, sha256_of
 from enigma.core.ids import new_id
 from enigma.fsm.definitions import STRATEGY_LIFECYCLE
 from enigma.fsm.machine import StateMachineStore
+from enigma.isolation.hosts import assert_clock_skew, peer_clock
 from enigma.schemas.common import Plane, SystemActor
 from enigma.schemas.knowledge import FailureCondition, FailureKind
 from enigma.schemas.research import DatasetVersion, Experiment, Hypothesis, StrategyPackage
@@ -66,7 +67,12 @@ from enigma.strategy.sandbox import SandboxJob, SandboxResult, SandboxRunner
 from enigma.strategy.static_check import StrategyRejectedError
 from enigma.validation import gates as gate_lib
 from enigma.validation.build import validator_build_sha
-from enigma.validation.holdout import HoldoutCustody, HoldoutSource, holdout_split_index
+from enigma.validation.holdout import (
+    HoldoutCustody,
+    HoldoutSource,
+    bar_delta,
+    holdout_split_index,
+)
 from enigma.validation.protocol import ValidationProtocol, load_protocol
 
 ACTOR = SystemActor.VALIDATION_SERVICE.value
@@ -179,6 +185,9 @@ class ValidationService:
         embargo = gate_lib.embargo_bars(self.protocol.gate("G02"), label_horizon_bars)
         cutoff = bars[max(split - embargo, 0)]
         assert isinstance(cutoff, datetime)
+        peer = peer_clock()
+        if peer is not None:
+            assert_clock_skew(self.clock.now(), peer, embargo * bar_delta(self.frequency))
         return cutoff
 
     def validate(self, request: ValidationRequest) -> ValidationReport:
