@@ -363,3 +363,56 @@ class ReadModels:
 
     def machines(self) -> dict[str, dict[str, int]]:
         return {m.name: self.fsm.state_counts(m) for m in ALL_MACHINES}
+
+    def operations(self) -> dict[str, Any]:
+        """Continuous-mode backlog and the latest resource snapshot. Read-only."""
+        import json  # noqa: PLC0415
+
+        from enigma.orchestrator.backlog import research_agenda  # noqa: PLC0415
+        from enigma.orchestrator.daemon import Schedule  # noqa: PLC0415
+        from enigma.orchestrator.host import available_memory_mb  # noqa: PLC0415
+
+        schedule = Schedule.load(Settings.from_env().registries_dir / "schedules.yaml")
+        budget = (
+            1_000_000.0 if schedule.max_cycles_per_day <= 0 else float(schedule.max_cycles_per_day)
+        )
+        agenda = research_agenda(self.s, inputs_budget=budget)
+        raw = self.s.flags.get("operations.snapshot")
+        snapshot: dict[str, Any] = {}
+        if raw:
+            try:
+                loaded = json.loads(raw)
+            except json.JSONDecodeError:
+                loaded = {}
+            if isinstance(loaded, dict):
+                snapshot = loaded
+        latest = self.s.db.query_one(
+            "SELECT cpu_seconds, created_at FROM costs WHERE category = 'llm' "
+            "ORDER BY created_at DESC LIMIT 1"
+        )
+        free = available_memory_mb()
+        return {
+            "mode": "continuous" if schedule.continuous else "capped",
+            "max_cycles_per_day": schedule.max_cycles_per_day,
+            "max_concurrent_cycles": schedule.max_concurrent_cycles,
+            "pause_reason": str(snapshot.get("pause_reason") or ""),
+            "memory_available_mb": None if free is None else round(free, 1),
+            "memory_floor_mb": schedule.min_free_memory_mb,
+            "inference_latency_s": None
+            if latest is None
+            else round(float(latest["cpu_seconds"]), 3),
+            "inference_at": None if latest is None else latest["created_at"],
+            "active_cycles": list(snapshot.get("active_cycles") or []),
+            "backlog": [
+                {
+                    "id": item.candidate.id,
+                    "kind": item.candidate.kind,
+                    "family": item.candidate.family,
+                    "summary": item.candidate.summary,
+                    "score": item.score,
+                    "viable": item.viable,
+                    "reasons": list(item.reasons),
+                }
+                for item in agenda.ranked
+            ],
+        }

@@ -1,6 +1,39 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Institution overview</h1>
+<h2>Continuous operation</h2>
+<div class="grid">
+  <div class="card"><div class="k">Mode</div><div class="v">{{ operations.mode }}</div></div>
+  <div class="card"><div class="k">Daily cycle cap</div>
+    <div class="v">{{ 'none' if operations.max_cycles_per_day == 0 else operations.max_cycles_per_day }}</div></div>
+  <div class="card"><div class="k">Concurrent cycles</div><div class="v">{{ operations.max_concurrent_cycles }}</div></div>
+  <div class="card"><div class="k">Memory free / floor (MiB)</div>
+    <div class="v">{{ operations.memory_available_mb if operations.memory_available_mb is not none else 'unknown' }} / {{ operations.memory_floor_mb }}</div></div>
+  <div class="card"><div class="k">Last inference (s)</div>
+    <div class="v">{{ operations.inference_latency_s if operations.inference_latency_s is not none else '—' }}</div>
+    {% if operations.inference_at %}<div class="muted mono">{{ operations.inference_at }}</div>{% endif %}</div>
+</div>
+{% if operations.pause_reason %}
+<p class="bad">Not opening a new cycle: {{ operations.pause_reason }}</p>
+{% else %}
+<p class="muted">A free slot opens the highest viable backlog item. No objective has to be typed in.</p>
+{% endif %}
+
+<h2>Research backlog</h2>
+{% if operations.backlog %}
+<table><tr><th>Rank</th><th>Kind</th><th>Score</th><th>Viable</th><th>Question</th></tr>
+{% for item in operations.backlog %}
+<tr>
+  <td>{{ loop.index }}</td>
+  <td>{{ item.kind }}</td>
+  <td class="mono">{{ '%.3f'|format(item.score) }}</td>
+  <td class="{{ 'ok' if item.viable else 'bad' }}">{{ 'yes' if item.viable else 'no' }}</td>
+  <td>{{ item.summary }}{% if item.reasons %}<div class="muted">{{ item.reasons|join('; ') }}</div>{% endif %}</td>
+</tr>
+{% endfor %}
+</table>
+{% else %}<div class="empty">The backlog is empty.</div>{% endif %}
+
 <div class="grid">
   <div class="card"><div class="k">Research cycles</div><div class="v">{{ cycles|length }}</div></div>
   <div class="card"><div class="k">Tasks (pending / running / done / failed)</div>

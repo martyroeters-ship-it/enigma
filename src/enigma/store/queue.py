@@ -16,6 +16,32 @@ def _iso(dt: datetime) -> str:
     return dt.astimezone(UTC).isoformat()
 
 
+_TRANSIENT_MARKERS = (
+    "timeout",
+    "timed out",
+    "connection",
+    "temporarily",
+    "upstream",
+    "reset by peer",
+    "429",
+    "503",
+    "504",
+)
+
+
+def is_transient_failure(error: str) -> bool:
+    """Network and provider blips retry. Isolation and policy failures do not."""
+    text = error.lower()
+    if "isolation" in text or "sandbox" in text or "not available" in text:
+        return False
+    return any(marker in text for marker in _TRANSIENT_MARKERS)
+
+
+def retry_delay_seconds(attempt: int) -> float:
+    """Bounded exponential backoff. Attempt 1 waits 2s, then 4s, capped at 60s."""
+    return float(min(60, 2 ** max(attempt, 1)))
+
+
 class TaskQueue:
     def __init__(self, db: Database) -> None:
         self.db = db
@@ -59,16 +85,23 @@ class TaskQueue:
         if roles:
             sql += f" AND assigned_to IN ({','.join('?' * len(roles))})"
             params.extend(r.value for r in roles)
-        sql += " ORDER BY priority ASC, created_at ASC LIMIT 1"
+        sql += " ORDER BY priority ASC, created_at ASC LIMIT 32"
         with self.db.transaction() as conn:
-            row = conn.execute(sql, params).fetchone()
-            if row is None:
+            rows = conn.execute(sql, params).fetchall()
+            task: Task | None = None
+            for row in rows:
+                candidate = Task.model_validate_json(row["body"])
+                if candidate.not_before is not None and candidate.not_before > now:
+                    continue
+                task = candidate
+                break
+            if task is None:
                 return None
-            task = Task.model_validate_json(row["body"])
             task = task.model_copy(
                 update={
                     "status": TaskStatus.RUNNING,
                     "attempts": task.attempts + 1,
+                    "not_before": None,
                     "updated_at": now,
                 }
             )
@@ -104,7 +137,13 @@ class TaskQueue:
         if task is None:
             raise KeyError(task_id)
         if retry and task.attempts < task.max_attempts:
-            return self._finish(task_id, TaskStatus.PENDING, error=error)
+            extra: dict[str, Any] | None = None
+            if is_transient_failure(error):
+                extra = {
+                    "not_before": datetime.now(UTC)
+                    + timedelta(seconds=retry_delay_seconds(task.attempts))
+                }
+            return self._finish(task_id, TaskStatus.PENDING, error=error, extra=extra)
         return self._finish(task_id, TaskStatus.FAILED, error=error)
 
     def cancel(self, task_id: str, reason: str) -> Task:
@@ -116,6 +155,7 @@ class TaskQueue:
         status: TaskStatus,
         outputs: dict[str, Any] | None = None,
         error: str | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> Task:
         now = datetime.now(UTC)
         with self.db.transaction() as conn:
@@ -128,6 +168,8 @@ class TaskQueue:
                 update["outputs"] = outputs
             if error is not None:
                 update["error"] = error
+            if extra:
+                update.update(extra)
             task = task.model_copy(update=update)
             conn.execute(
                 "UPDATE task_queue SET status = ?, body = ?, lease_owner = NULL,"

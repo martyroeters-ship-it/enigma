@@ -67,6 +67,40 @@ uv run enigma sandbox status
 
 The container is read-only except for one temporary directory, drops every capability, sets no-new-privileges, limits CPU, memory, processes, and file size, and does not receive host environment variables. It is not given the Docker socket, `ENIGMA_HOME`, credentials, or the sealed validation store. Only the arrays for that trial are copied in.
 
+## Continuous research
+
+`enigma up` keeps the institution running. With `registries/schedules.yaml` set to `continuous: true` and `max_cycles_per_day: 0`, it does not stop after four cycles and it does not wait for a typed objective. One cycle runs at a time. When it finishes or aborts, the next viable backlog item starts on the following step. The backlog is the four registered mechanisms on BTCUSDT and ETHUSDT at 1h, 8h, and 1d horizons, plus any proposed follow-up and any market-scan objective. A direction that already has a completed validation is not repeated. A mechanism that has failed at least three times with no pass and little left to learn is abandoned. The only repeat is a follow-up whose lesson recorded a positive gross Sharpe that costs then destroyed.
+
+Ollama, the dashboard, and this process stay on the Mac. Strategy code still uses the Docker sandbox. Paid API spend stays $0. Paper and live trading stay off. Do not set `ENIGMA_SANDBOX_ALLOW_WEAK`.
+
+Leave `~/enigma-run` in place.
+
+```bash
+cd ~/enigma
+git fetch origin
+git checkout cursor/continuous-research-2746
+uv sync
+
+export ENIGMA_HOME="$HOME/enigma-run"
+export ENIGMA_MAX_DAILY_API_SPEND_USD=0
+unset ENIGMA_PAPER_ACK_ID
+unset ENIGMA_SANDBOX_ALLOW_WEAK
+
+uv run enigma sandbox status
+uv run enigma up
+```
+
+`sandbox status` must print `docker` before `up`. `up` prints `continuous research: on` and does not return until you stop it. Stop it with Ctrl-C. In a second terminal:
+
+```bash
+export ENIGMA_HOME="$HOME/enigma-run"
+uv run enigma dashboard --host 127.0.0.1 --port 8000
+```
+
+Open http://127.0.0.1:8000/ . The overview shows the mode, the memory floor, the last inference time, and the ranked backlog. JSON for the same view is `/api/operations`.
+
+`enigma research` still runs objectives that are already submitted and then stops. It does not open the standing backlog. Use `enigma up` for continuous operation.
+
 ## Start
 
 ```bash

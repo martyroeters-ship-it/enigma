@@ -128,6 +128,19 @@ def test_queue_retry_then_terminal_failure(stores: Stores) -> None:
     assert q.fail(task.id, "boom").status is TaskStatus.FAILED
 
 
+def test_transient_failure_waits_before_the_next_claim(stores: Stores) -> None:
+    q = stores.queue
+    task = _task(max_attempts=3)
+    q.enqueue(task)
+    q.claim("w")
+    pending = q.fail(task.id, "upstream timeout")
+    assert pending.status is TaskStatus.PENDING
+    assert pending.not_before is not None
+    assert q.claim("w", now=pending.not_before - timedelta(seconds=1)) is None
+    again = q.claim("w", now=pending.not_before + timedelta(seconds=1))
+    assert again is not None and again.id == task.id
+
+
 def test_queue_priority_and_role_filter(stores: Stores) -> None:
     q = stores.queue
     low = _task(priority=200)

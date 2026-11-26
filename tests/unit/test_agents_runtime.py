@@ -165,8 +165,9 @@ def test_tool_outside_allowlist_is_denied_and_not_retried(
 
 
 def test_transient_failures_retry_then_fail(
-    stores: Stores, bus: MessageBus, contracts: ContractRegistry
+    stores: Stores, bus: MessageBus, contracts: ContractRegistry, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr("enigma.store.queue.retry_delay_seconds", lambda _attempt: 0.0)
     cmap = {c.role: c for c in contracts.all()}
     delegate(stores.queue, bus, cmap, AgentRole.CIO, _request(), "cyc_3")
     worker = AgentWorker(stores, bus, contracts, _tools(), {AgentRole.INTELLIGENCE: FlakyAgent()})

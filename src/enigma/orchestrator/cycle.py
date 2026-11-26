@@ -30,7 +30,7 @@ from enigma.learning.postmortem import postmortem_for_abort, postmortem_for_vali
 from enigma.research.mechanisms import MECHANISMS
 from enigma.schemas.common import AgentRole, ClaimLevel, Instrument
 from enigma.schemas.cycle import NextExperimentProposal
-from enigma.schemas.governance import Task, TaskStatus
+from enigma.schemas.governance import Reflection, ReflectionOutcome, Task, TaskStatus
 from enigma.schemas.knowledge import Lesson
 from enigma.schemas.learning import ForecastRecord
 from enigma.schemas.research import ResearchObjective
@@ -214,6 +214,23 @@ class CycleDriver:
         for les in lessons:
             self.stores.documents.put(les, recorded_by=CIO.value)
         state["abort_lesson_ids"] = [les.id for les in lessons]
+        reflection = Reflection(
+            id="ref_" + sha256_hex(f"{cycle_id}|abort")[:26].upper(),
+            task_id=cycle_id,
+            agent=AgentRole.META_LEARNING,
+            outcome=ReflectionOutcome.ABORTED,
+            what_worked="The cycle stopped before a false success could be recorded.",
+            what_failed=(lessons[0].statement if lessons else reason)[:4000],
+            suspected_systemic_issue=None,
+            proposed_followup=(
+                "The backlog chooses the next direction. This abort is not a cost result."
+            ),
+            metrics={},
+            created_at=self.clock.now(),
+        )
+        if self.stores.documents.get(Reflection, reflection.id) is None:
+            self.stores.documents.put(reflection, recorded_by=CIO.value)
+        state["abort_reflection_id"] = reflection.id
         if lessons and not self.stores.documents.list(
             NextExperimentProposal, where={"parent_cycle_id": cycle_id}
         ):

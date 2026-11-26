@@ -102,7 +102,17 @@ def review_institution(
             )
     failure_topics = Counter(t for les in lessons if les.outcome == "failure" for t in les.topics)
     for topic, count in failure_topics.items():
-        if topic in {"cost_fragility", "overfit", "no_signal", "multiple_testing"} and count >= 2:
+        if (
+            topic
+            in {
+                "cost_fragility",
+                "absent_gross_edge",
+                "overfit",
+                "no_signal",
+                "multiple_testing",
+            }
+            and count >= 2
+        ):
             proposals.append(
                 _proposal(
                     f"{window_key}|lesson|{topic}",
