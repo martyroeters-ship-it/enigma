@@ -35,6 +35,21 @@ CASES = [
         AbortClass.INFRASTRUCTURE,
         "holdout_integrity",
     ),
+    (
+        "hypothesis task failed: RuntimeError: llm_error: no model candidate succeeded "
+        "(route pinned): local-qwen [structured_output]: output is not valid JSON: "
+        "Expecting value at char 0",
+        "KNOWLEDGE_STORED",
+        AbortClass.INFRASTRUCTURE,
+        "invalid_model_json",
+    ),
+    (
+        "strategy task failed: RuntimeError: codegen_failed_after_repairs: "
+        "attempt 3 static: generated source failed the sandbox import check",
+        "DATA_ACQUIRED",
+        AbortClass.INFRASTRUCTURE,
+        "strategy_codegen_failed",
+    ),
 ]
 
 

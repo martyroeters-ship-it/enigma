@@ -298,3 +298,37 @@ class FundingMomentum(Strategy):
 MECHANISMS: dict[str, Mechanism] = {
     m.id: m for m in (FUNDING_CROWDING_REVERSAL, FUNDING_CARRY, BASIS_REVERSION, FUNDING_MOMENTUM)
 }
+
+# Names the model actually emits. "cryptocurrency" is intentionally absent: it is not a mechanism.
+_DOMAIN_ALIASES = {
+    "funding": "funding_crowding_reversal",
+    "funding_rate": "funding_crowding_reversal",
+    "crowding": "funding_crowding_reversal",
+    "funding_crowding": "funding_crowding_reversal",
+    "carry": "funding_carry",
+    "funding_carry": "funding_carry",
+    "basis": "basis_reversion",
+    "basis_mean_reversion": "basis_reversion",
+    "basis_reversion": "basis_reversion",
+    "momentum": "funding_momentum",
+    "funding_momentum": "funding_momentum",
+    "novel": "novel",
+}
+
+
+def canonical_domain(domain: str) -> str:
+    """Strip repeated ``fam_`` prefixes and map aliases onto a mechanism id.
+
+    Unknown text is returned unchanged (aside from the prefix strip and
+    normalization) so a check can reject it instead of silently relabeling it.
+    """
+    text = domain.strip()
+    while text.startswith("fam_"):
+        text = text.removeprefix("fam_")
+    key = text.casefold().replace(" ", "_").replace("-", "_")
+    return _DOMAIN_ALIASES.get(key, key)
+
+
+def family_id_for_domain(domain: str) -> str:
+    """One ``fam_`` prefix. ``fam_fam_cryptocurrency`` does not become a family."""
+    return f"fam_{canonical_domain(domain)}"

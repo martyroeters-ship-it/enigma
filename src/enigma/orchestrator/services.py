@@ -367,7 +367,7 @@ class OperationalServices:
         task_id: str,
         budget: BudgetTracker,
         actor: str,
-        model: str | None = "local-qwen",
+        model: str | None = None,
     ) -> dict[str, Any]:
         research_context = ResearchContext.model_validate(context)
         prompts = PromptRegistry.load(self.settings.registries_dir / "prompts")
@@ -389,7 +389,7 @@ class OperationalServices:
         task_id: str,
         budget: BudgetTracker,
         actor: str,
-        model: str | None = "local-qwen",
+        model: str | None = None,
     ) -> dict[str, Any]:
         hyp = self.stores.documents.require(Hypothesis, hypothesis_id)
         dataset = self.stores.documents.require(DatasetVersion, dataset_version_id)

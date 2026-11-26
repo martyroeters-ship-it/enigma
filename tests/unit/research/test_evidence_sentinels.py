@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from enigma.research.checks import check_proposal, normalize_proposal
+from enigma.research.mechanisms import canonical_domain, family_id_for_domain
 from enigma.schemas.quant import (
     ColumnUse,
     DatasetInfo,
@@ -23,7 +24,7 @@ def _proposal(**overrides: object) -> HypothesisProposal:
     base = {
         "id": "hyp_1",
         "title": "Funding edge",
-        "domain": "crypto",
+        "domain": "funding_crowding_reversal",
         "market_mechanism": "funding",
         "inefficiency_rationale": "crowding",
         "persistence_rationale": "hours",
@@ -238,3 +239,45 @@ def test_normalize_aliases_returns_column_onto_perp_close() -> None:
     assert all(u.dataset_id == "dsv_01REAL" for u in fixed.required_data)
     assert fixed.supporting_evidence_ids == ("evid_01AAA",)
     assert not check_proposal(fixed, ctx)
+
+
+def test_unknown_domain_fails_and_aliases_canonicalize() -> None:
+    ctx = ResearchContext(
+        id="ctx",
+        objective_id="obj",
+        objective="funding",
+        research_cutoff=NOW,
+        instruments=("BTCUSDT",),
+        cost_model_version="cm-binance-usdm-v1",
+        cost_bps_per_unit_turnover=2.0,
+        evidence=(
+            EvidenceExcerpt(
+                id="ev_1",
+                source_id="src",
+                text="funding positive",
+                claim_level="L1",
+                topics=("funding",),
+            ),
+        ),
+        datasets=(
+            DatasetInfo(
+                dataset_version_id="ds_1",
+                name="binance_perp_funding_8h",
+                frequency="8h",
+                bar_hours=8.0,
+                symbols=("BTCUSDT",),
+                columns=("funding_rate", "close"),
+                coverage_start=NOW,
+                coverage_end=NOW,
+                rows=100,
+            ),
+        ),
+    )
+    failures = check_proposal(_proposal(domain="fam_fam_cryptocurrency"), ctx)
+    assert any(f.check == "registered_mechanism" for f in failures)
+    fixed = normalize_proposal(_proposal(domain="funding"), ctx)
+    assert fixed.domain == "funding_crowding_reversal"
+    assert "registered_mechanism" not in {f.check for f in check_proposal(fixed, ctx)}
+    assert canonical_domain("fam_fam_cryptocurrency") == "cryptocurrency"
+    assert family_id_for_domain("fam_funding_carry") == "fam_funding_carry"
+    assert family_id_for_domain("fam_fam_cryptocurrency") == "fam_cryptocurrency"

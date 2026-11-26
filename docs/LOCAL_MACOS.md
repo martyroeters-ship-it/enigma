@@ -42,10 +42,14 @@ OLLAMA_NUM_PARALLEL=1 ollama serve
 ```bash
 export ENIGMA_HOME="$HOME/enigma-run"
 export ENIGMA_MAX_DAILY_API_SPEND_USD=0
-unset ENIGMA_PAPER_ACK_ID ENIGMA_HYPOTHESIS_MODE
+unset ENIGMA_PAPER_ACK_ID
 uv run enigma init
-uv run enigma run --until-idle
+uv run enigma up
 ```
+
+`enigma up` refuses to start unless the daily spend cap is $0 and both trading flags in `registries/risk/limits.yaml` are false. It checks that Ollama answers on `http://127.0.0.1:11434`, sets `ENIGMA_HYPOTHESIS_MODE=llm` when that variable is unset, takes the home's daemon lock, requeues orphaned tasks, and prints a line after each step. A second `enigma up` or `enigma run` against the same home exits instead of writing beside the first process. `Ctrl-C` finishes the current step.
+
+Hypothesis calls on the 7B model can run for many minutes. The Ollama provider timeout in `registries/models/models.yaml` is 1800 seconds.
 
 In a second terminal, the read-only dashboard:
 

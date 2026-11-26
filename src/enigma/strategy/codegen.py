@@ -27,6 +27,16 @@ METHOD = "llm:strategy-codegen-v1"
 MAX_ATTEMPTS = 3
 
 
+def _failed_codegen_reason(attempts: list[CodegenAttempt]) -> str:
+    """Keep the stage and the static or sandbox error. The abort classifier keys off the prefix."""
+    parts: list[str] = []
+    for attempt in attempts[-3:]:
+        detail = "; ".join(attempt.errors)[:240] or "no error text"
+        parts.append(f"attempt {attempt.index} {attempt.stage_reached}: {detail}")
+    body = " | ".join(parts) if parts else "no attempt detail"
+    return f"codegen_failed_after_repairs: {body}"[:800]
+
+
 def _default_params(spec: StrategySpec) -> dict[str, float | int | str]:
     """Grid defaults plus top-level cadence fields the model often reads as params."""
     params: dict[str, float | int | str] = {p.name: p.values[0] for p in spec.parameters}
@@ -335,7 +345,7 @@ class StrategyCodeGenerator:
             package_id=package.id if package else None,
             package_hash=package.content_hash if package else None,
             checks={"static": ok, "sandbox_smoke": ok},
-            failure_reason=None if ok else "codegen_failed_after_repairs",
+            failure_reason=None if ok else _failed_codegen_reason(attempts),
             created_by=actor,
             created_at=now,
         )

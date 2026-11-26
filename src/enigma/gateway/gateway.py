@@ -65,6 +65,40 @@ _PROBE_TTL_S = 60.0
 _FENCE_RE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL)
 
 
+def _provider_seconds(result: ProviderResult) -> float:
+    """Ollama reports ``total_duration`` in nanoseconds. Other providers leave this at 0."""
+    raw = result.extra.get("provider_seconds") if result.extra else 0
+    try:
+        value = float(raw or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(value) or value < 0:
+        return 0.0
+    return value
+
+
+def _empty_native_json(result: ProviderResult, errors: list[str]) -> bool:
+    """Native grammar returned nothing the JSON parser can read."""
+    if result.structured_mode != "native":
+        return False
+    if not (result.text or "").strip():
+        return True
+    return any("Expecting value" in err or "not valid JSON" in err for err in errors)
+
+
+def _combine_results(first: ProviderResult, second: ProviderResult) -> ProviderResult:
+    return replace(
+        second,
+        usage=second.usage.model_copy(
+            update={
+                "input_tokens": first.usage.input_tokens + second.usage.input_tokens,
+                "output_tokens": first.usage.output_tokens + second.usage.output_tokens,
+                "reasoning_tokens": first.usage.reasoning_tokens + second.usage.reasoning_tokens,
+            }
+        ),
+    )
+
+
 class FailureKind(StrEnum):
     MISSING_CREDENTIALS = "missing_credentials"
     UNREACHABLE = "unreachable"
@@ -372,6 +406,7 @@ class ModelGateway:
         output_tokens: int = 0,
         usd: float = 0.0,
         http_requests: int = 0,
+        cpu_seconds: float = 0.0,
         cached: bool = False,
     ) -> CostRecord:
         return CostRecord(
@@ -385,6 +420,7 @@ class ModelGateway:
             output_tokens=output_tokens,
             usd=usd,
             http_requests=http_requests,
+            cpu_seconds=cpu_seconds,
             cached=cached,
             created_at=self.clock.now(),
         )
@@ -400,6 +436,7 @@ class ModelGateway:
         output_tokens: int = 0,
         usd: float = 0.0,
         http_requests: int = 0,
+        cpu_seconds: float = 0.0,
         cached: bool = False,
         reservation_id: str | None = None,
     ) -> None:
@@ -412,6 +449,7 @@ class ModelGateway:
             output_tokens=output_tokens,
             usd=usd,
             http_requests=http_requests,
+            cpu_seconds=cpu_seconds,
             cached=cached,
         )
         if reservation_id is not None:
@@ -545,6 +583,7 @@ class ModelGateway:
             output_tokens=result.usage.output_tokens,
             usd=usd,
             http_requests=attempts,
+            cpu_seconds=_provider_seconds(result),
             reservation_id=reservation_id,
         )
         return result, attempts, latency_ms, usd
@@ -654,17 +693,27 @@ class ModelGateway:
         repaired = False
         if request.response_schema is not None and not result.tool_calls:
             parsed, errors = self._validate_result(result, request.response_schema)
+            if errors and _empty_native_json(result, errors):
+                json_call = replace(call, structured_format="json")
+                result2, attempts2, latency2, usd2 = self._run_call(
+                    json_call, price, actor, task_id, budget, max_cost_per_call
+                )
+                parsed, errors = self._validate_result(result2, request.response_schema)
+                result = _combine_results(result, result2)
+                attempts += attempts2
+                latency_ms += latency2
+                usd += usd2
             if errors:
-                repair_call = ProviderCall(
+                repair_format = (
+                    "json"
+                    if result.structured_mode in {"native", "json"}
+                    or call.structured_format == "json"
+                    else call.structured_format
+                )
+                repair_call = replace(
+                    call,
                     request=self._repair_request(request, result.text, errors),
-                    model=call.model,
-                    provider=call.provider,
-                    base_url=call.base_url,
-                    api_key=call.api_key,
-                    output_token_cap=call.output_token_cap,
-                    reasoning_effort=call.reasoning_effort,
-                    json_schema=call.json_schema,
-                    secrets=call.secrets,
+                    structured_format=repair_format,
                 )
                 result2, attempts2, latency2, usd2 = self._run_call(
                     repair_call, price, actor, task_id, budget, max_cost_per_call
@@ -675,18 +724,7 @@ class ModelGateway:
                         FailureKind.STRUCTURED_OUTPUT,
                         redact("; ".join(errors2[:10]), call.secrets),
                     )
-                first = result.usage
-                result = replace(
-                    result2,
-                    usage=result2.usage.model_copy(
-                        update={
-                            "input_tokens": first.input_tokens + result2.usage.input_tokens,
-                            "output_tokens": first.output_tokens + result2.usage.output_tokens,
-                            "reasoning_tokens": first.reasoning_tokens
-                            + result2.usage.reasoning_tokens,
-                        }
-                    ),
-                )
+                result = _combine_results(result, result2)
                 attempts += attempts2
                 latency_ms += latency2
                 usd += usd2

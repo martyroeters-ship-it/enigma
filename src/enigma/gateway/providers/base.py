@@ -49,6 +49,10 @@ class ProviderCall:
     reasoning_effort: ReasoningEffort
     json_schema: dict[str, Any] | None
     secrets: tuple[str, ...] = ()
+    # "auto" uses the provider's native schema when it has one. "json" asks for
+    # a JSON object plus the schema in the prompt, used when native grammar
+    # returns an empty body.
+    structured_format: str = "auto"
 
     @property
     def offered_tools(self) -> frozenset[str]:

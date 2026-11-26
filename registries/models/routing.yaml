@@ -41,6 +41,13 @@ roles:
         reasoning_effort: high
         max_cost_per_call_usd: 1.00
         max_output_tokens: 8192
+      # Local structured output. 7B first; 3B only if that tag is installed and
+      # the 7B body does not parse. Paid models are not candidates for this task.
+      quant.hypothesis:
+        candidates: [local-qwen, local-qwen-3b]
+        reasoning_effort: none
+        max_cost_per_call_usd: 0.0
+        max_output_tokens: 4096
 
   strategy_engineering:
     default:
@@ -48,6 +55,12 @@ roles:
       reasoning_effort: medium
       max_cost_per_call_usd: 0.50
       max_output_tokens: 8192
+    tasks:
+      strategy.codegen:
+        candidates: [local-qwen, local-qwen-3b]
+        reasoning_effort: none
+        max_cost_per_call_usd: 0.0
+        max_output_tokens: 4096
 
   meta_learning:
     default:

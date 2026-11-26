@@ -10,6 +10,7 @@ from enigma.gateway.errors import StructuredOutputError
 from enigma.gateway.prompts import PromptRegistry, PromptTemplate
 from enigma.gateway.protocol import StructuredGenerator, provenance_of
 from enigma.research.checks import acquisition_needed, check_proposal, normalize_proposal
+from enigma.research.mechanisms import canonical_domain
 from enigma.schemas.common import AgentRole
 from enigma.schemas.governance import Budget, ExecutionMode
 from enigma.schemas.quant import (
@@ -204,6 +205,10 @@ class HypothesisGenerator:
             evidence_compact=evidence_compact or "(none)",
             context_json=json.dumps(compact, indent=2)[:8000],
             critique=critique or "(none)",
+            tested_mechanisms=", ".join(
+                dict.fromkeys(canonical_domain(p.family_id) for p in context.prior_hypotheses)
+            )
+            or "(none)",
         )
         traced = self.llm.generate_traced(
             HypothesisProposal,

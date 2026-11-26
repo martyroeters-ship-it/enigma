@@ -10,7 +10,8 @@ import httpx
 
 from enigma.gateway.gateway import estimate_input_tokens
 from enigma.gateway.providers.base import ProviderCall, billable_output_cap
-from enigma.gateway.providers.ollama import OllamaAdapter, ollama_num_ctx
+from enigma.gateway.providers.ollama import OllamaAdapter, compact_json_schema, ollama_num_ctx
+from enigma.schemas.quant import HypothesisProposal
 from enigma.gateway.registry import ModelSpec, ProviderSpec
 from enigma.gateway.types import Message, MessageRole, ModelRequest, ReasoningEffort
 
@@ -64,3 +65,11 @@ def test_long_prompt_grows_within_the_registry_window() -> None:
 def test_num_ctx_never_exceeds_a_small_window() -> None:
     call = _call("x " * 20000, window=2048, cap=128)
     assert ollama_num_ctx(call) == 2048
+
+
+def test_compact_schema_keeps_a_field_named_title() -> None:
+    schema = compact_json_schema(HypothesisProposal.model_json_schema())
+    assert schema["properties"]["title"]["type"] == "string"
+    assert "title" in schema["required"]
+    assert "$defs" not in schema
+    assert "title" not in schema

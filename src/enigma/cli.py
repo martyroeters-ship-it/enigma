@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import TYPE_CHECKING, Annotated
 
+import httpx
 import typer
+import yaml
 
 from enigma.core.config import Settings
 from enigma.fsm import ALL_MACHINES, RESEARCH_CYCLE, StateMachineStore
@@ -84,16 +87,64 @@ def research(
     from enigma.orchestrator.institution import perp  # noqa: PLC0415
 
     inst = _institution()
-    cycle_id = inst.driver.submit_objective(
-        objective,
-        tuple(perp(s.strip().upper()) for s in symbols.split(",") if s.strip()),
-        tuple(t.strip() for t in topics.split(",") if t.strip()),
-        max_trials=max_trials,
-    )
-    typer.echo(f"cycle {cycle_id} submitted")
+    already = set(inst.driver.active_cycles())
+    try:
+        cycle_id = inst.driver.submit_objective(
+            objective,
+            tuple(perp(s.strip().upper()) for s in symbols.split(",") if s.strip()),
+            tuple(t.strip() for t in topics.split(",") if t.strip()),
+            max_trials=max_trials,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from exc
+    if cycle_id in already:
+        typer.echo(f"cycle {cycle_id} already running for this objective")
+    else:
+        typer.echo(f"cycle {cycle_id} submitted")
     if run:
         _daemon(inst).run(until_idle=True)
         typer.echo(f"cycle {cycle_id}: {inst.fsm.state(RESEARCH_CYCLE, cycle_id)}")
+
+
+@app.command()
+def up() -> None:
+    """Check spend and trading flags, confirm Ollama, recover orphans, run the daemon."""
+    settings = Settings.from_env()
+    if settings.max_daily_api_spend_usd != 0:
+        typer.echo("ENIGMA_MAX_DAILY_API_SPEND_USD must be 0. Refusing to start.")
+        raise typer.Exit(code=1)
+    limits_path = settings.registries_dir / "risk" / "limits.yaml"
+    limits = yaml.safe_load(limits_path.read_text(encoding="utf-8")) or {}
+    paper_off = limits.get("paper_trading_enabled") is False
+    live_off = limits.get("live_trading_enabled") is False
+    if not paper_off or not live_off:
+        typer.echo(f"{limits_path} must keep paper and live trading disabled. Refusing to start.")
+        raise typer.Exit(code=1)
+    os.environ.setdefault("ENIGMA_HYPOTHESIS_MODE", "llm")
+    try:
+        response = httpx.get("http://127.0.0.1:11434/api/version", timeout=3.0)
+        response.raise_for_status()
+        version = response.json().get("version", "unknown")
+    except Exception as exc:
+        typer.echo(f"Ollama is not reachable at http://127.0.0.1:11434 ({exc}).")
+        raise typer.Exit(code=1) from exc
+    inst = _institution()
+    daemon = _daemon(inst)
+    daemon.install_signal_handlers()
+    typer.echo(f"home {settings.home}")
+    typer.echo(f"Ollama {version}; spend cap $0; paper and live trading off")
+    typer.echo(f"hypothesis mode {os.environ.get('ENIGMA_HYPOTHESIS_MODE')}")
+
+    def _progress(iteration: int, status: str) -> None:
+        typer.echo(f"step {iteration}: {status}")
+
+    try:
+        n = daemon.run(until_idle=False, on_step=_progress)
+    except RuntimeError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"daemon stopped after {n} iterations")
 
 
 @app.command(name="run")

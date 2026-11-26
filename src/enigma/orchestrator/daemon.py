@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import os
 import signal
 import socket
@@ -183,13 +184,24 @@ class Daemon:
         self.heartbeat(f"running: {task.kind}" if task else "idle", force=True)
         return progressed
 
-    def run(self, until_idle: bool = False, max_iterations: int | None = None) -> int:
-        self.startup()
+    def run(
+        self,
+        until_idle: bool = False,
+        max_iterations: int | None = None,
+        on_step: Callable[[int, str], None] | None = None,
+    ) -> int:
+        lock = self._acquire_writer_lock()
         iterations = 0
         try:
+            requeued = self.startup()
+            if on_step is not None:
+                on_step(0, f"started; requeued {len(requeued)}")
             while not self.stop.is_set():
                 progressed = self.step()
                 iterations += 1
+                if on_step is not None:
+                    active = ", ".join(self.inst.driver.active_cycles()) or "-"
+                    on_step(iterations, f"active {active}")
                 if max_iterations is not None and iterations >= max_iterations:
                     break
                 if not progressed:
@@ -198,7 +210,33 @@ class Daemon:
                     self.stop.wait(self.schedule.poll_interval_seconds)
         finally:
             self.shutdown()
+            self._release_writer_lock(lock)
         return iterations
+
+    def _acquire_writer_lock(self) -> Any:
+        """One daemon per home. A second process must not tick the same cycles."""
+        path = self.inst.settings.home / "control" / "daemon.lock"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handle = path.open("a+")
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            handle.close()
+            raise RuntimeError(
+                f"another Enigma daemon already holds {path}; refusing a second writer"
+            ) from exc
+        handle.seek(0)
+        handle.truncate()
+        handle.write(f"{socket.gethostname()}:{os.getpid()}\n")
+        handle.flush()
+        return handle
+
+    @staticmethod
+    def _release_writer_lock(handle: Any) -> None:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
 
     # ------------------------------------------------------------------ schedules
     def _chain_next_experiments(self) -> bool:
