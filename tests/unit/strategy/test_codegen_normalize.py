@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from unittest.mock import MagicMock
 
 from _synthetic import cost_model
 from enigma.schemas.common import AgentRole
-from enigma.schemas.governance import ExecutionMode
+from enigma.schemas.governance import Budget, ExecutionMode
 from enigma.schemas.quant import BaselineSpec, FeatureDef, ParameterGrid, StrategySpec
+from enigma.strategy import codegen as cg
+from enigma.strategy import sandbox as sandbox_module
 from enigma.strategy.codegen import _default_params, _normalize_generated_source, _sandbox_smoke
 from enigma.strategy.package import build_package
 from enigma.strategy.static_check import check_source
@@ -210,3 +213,78 @@ def test_normalized_slip_source_passes_sandbox_smoke() -> None:
         label_horizon_bars=spec.label_horizon_bars,
     )
     assert _sandbox_smoke(package, spec.required_columns, _default_params(spec)) == ()
+
+
+def test_codegen_stops_before_the_model_when_isolation_is_down(monkeypatch) -> None:
+    monkeypatch.setattr(sandbox_module, "_netns_available", lambda: False)
+    monkeypatch.setattr(
+        sandbox_module,
+        "_docker_backend_status",
+        lambda *, refresh=False: (False, "docker disabled for this test"),
+    )
+    monkeypatch.delenv("ENIGMA_SANDBOX_ALLOW_WEAK", raising=False)
+    llm = MagicMock()
+    prompts = MagicMock()
+    prompts.get.return_value.ref = "strategy.codegen@test"
+    record = cg.StrategyCodeGenerator(llm, prompts, max_attempts=3).generate(
+        _spec(),
+        cost_model=cost_model(),
+        task_id=None,
+        budget=Budget(),
+        now=NOW,
+    )
+    assert record.ok is False
+    assert record.attempts == ()
+    assert record.failure_reason is not None
+    assert "strategy isolation is not available" in record.failure_reason
+    assert "codegen_failed_after_repairs" not in record.failure_reason
+    llm.assert_not_called()
+
+
+def test_infrastructure_smoke_does_not_spend_repair_attempts(monkeypatch) -> None:
+    source = cg.GeneratedStrategySource(
+        entrypoint="S",
+        source_code=(
+            "import numpy as np\n"
+            "from enigma.strategy.interface import Strategy, StrategyMeta\n\n"
+            "class S(Strategy):\n"
+            "    def configure(self, params):\n"
+            "        self.params = dict(params)\n"
+            "    def required_columns(self):\n"
+            "        return ('funding_rate',)\n"
+            "    def metadata(self):\n"
+            "        return StrategyMeta(name='S', version='1', hypothesis_id='hyp_x', "
+            "cost_model_version='cm-test-1')\n"
+            "    def target_positions(self, data):\n"
+            "        x = data['funding_rate']\n"
+            "        return np.sign(x)\n"
+        ),
+    )
+    calls = {"n": 0}
+
+    def _call(*_args: object, **_kwargs: object) -> tuple[cg.GeneratedStrategySource, None]:
+        calls["n"] += 1
+        return source, None
+
+    monkeypatch.setattr(
+        cg,
+        "_sandbox_smoke",
+        lambda *_a, **_k: ("strategy isolation is not available. docker down",),
+    )
+    prompts = MagicMock()
+    prompts.get.return_value.ref = "strategy.codegen@test"
+    gen = cg.StrategyCodeGenerator(MagicMock(), prompts, max_attempts=3)
+    monkeypatch.setattr(gen, "_call", _call)
+    record = gen.generate(
+        _spec(),
+        cost_model=cost_model(),
+        task_id=None,
+        budget=Budget(),
+        now=NOW,
+    )
+    assert calls["n"] == 1
+    assert record.ok is False
+    assert record.failure_reason is not None
+    assert record.failure_reason.startswith("strategy isolation is not available")
+    assert "codegen_failed_after_repairs" not in record.failure_reason
+    assert len(record.attempts) == 1

@@ -50,6 +50,14 @@ CASES = [
         AbortClass.INFRASTRUCTURE,
         "strategy_codegen_failed",
     ),
+    (
+        "strategy task failed: RuntimeError: codegen_failed_after_repairs: "
+        "network namespace isolation unavailable; "
+        "set ENIGMA_SANDBOX_ALLOW_WEAK=1 only for local dev.",
+        "DATA_ACQUIRED",
+        AbortClass.INFRASTRUCTURE,
+        "sandbox_isolation_unavailable",
+    ),
 ]
 
 

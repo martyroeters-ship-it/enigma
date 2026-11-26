@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pytest
 
@@ -179,15 +181,67 @@ def test_fails_closed_without_isolation(
     monkeypatch: pytest.MonkeyPatch, data: dict[str, dict[str, np.ndarray]], stores: Stores
 ) -> None:
     monkeypatch.setattr(sandbox_module, "_netns_available", lambda: False)
+    monkeypatch.setattr(
+        sandbox_module,
+        "_docker_backend_status",
+        lambda *, refresh=False: (False, "docker disabled for this test"),
+    )
     monkeypatch.delenv(sandbox_module.ALLOW_WEAK_ENV, raising=False)
     pkg = package(MOMENTUM, "Momentum", ("perp_close",))
-    with pytest.raises(SandboxUnavailableError):
+    with pytest.raises(
+        SandboxUnavailableError, match="strategy isolation is not available"
+    ) as caught:
         SandboxRunner(audit=stores.audit).run(pkg, data, [SandboxJob("j", "s0")])
+    assert "ALLOW_WEAK" not in str(caught.value)
     monkeypatch.setenv(sandbox_module.ALLOW_WEAK_ENV, "1")
+    with pytest.raises(SandboxUnavailableError):
+        SandboxRunner(allow_weak=False, audit=stores.audit).check_isolation("startup")
     weak = SandboxRunner(audit=stores.audit).run(pkg, data, [SandboxJob("j", "s0")])
     assert weak.ok and weak.isolation == "weak"
     actions = [e.action for e in stores.audit.entries(subject_id=pkg.id)]
     assert "sandbox.weak_mode" in actions and "sandbox.denied" in actions
+
+
+def test_docker_isolation_uses_the_container_and_not_host_numpy(
+    monkeypatch: pytest.MonkeyPatch, data: dict[str, dict[str, np.ndarray]]
+) -> None:
+    seen: dict[str, object] = {}
+
+    def _spawn(box, parent, **kwargs):  # type: ignore[no-untyped-def]
+        seen["kwargs"] = kwargs
+        (parent / "stdout.log").write_bytes(b"")
+        (parent / "stderr.log").write_bytes(b"")
+        spec = json.loads((box / "spec.json").read_text(encoding="utf-8"))
+        seen["spec"] = spec
+        seen["host_numpy"] = (box / "lib" / "numpy").exists()
+        out = box / "out"
+        out.mkdir()
+        (out / "result.json").write_text(
+            json.dumps({"ok": False, "error": "stopped in the test double", "cpu_seconds": 0.2}),
+            encoding="utf-8",
+        )
+        return 1, False
+
+    monkeypatch.setattr(sandbox_module, "_netns_available", lambda: False)
+    monkeypatch.setattr(
+        sandbox_module,
+        "_docker_backend_status",
+        lambda *, refresh=False: (True, "linux container"),
+    )
+    monkeypatch.setattr(sandbox_module, "spawn_docker", _spawn)
+    pkg = package(MOMENTUM, "Momentum", ("perp_close",))
+    result = SandboxRunner().run(pkg, data, [SandboxJob("j", "s0")])
+    assert result.isolation == "docker"
+    assert result.cpu_seconds == 0.2
+    assert seen["host_numpy"] is False
+    spec = seen["spec"]
+    assert isinstance(spec, dict)
+    assert spec["discover_read_roots"] is True
+    assert spec["read_roots"] == []
+    kwargs = seen["kwargs"]
+    assert isinstance(kwargs, dict)
+    assert kwargs["cpu_seconds"] == 120
+    assert kwargs["memory_bytes"] == 4 * 1024**3
 
 
 STATEFUL_CHEAT = '''

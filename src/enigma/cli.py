@@ -48,6 +48,41 @@ def _daemon(inst: Institution) -> Daemon:
     return Daemon(inst, Schedule.load(inst.settings.registries_dir / "schedules.yaml"))
 
 
+def _require_spend_and_trading(settings: Settings) -> None:
+    if settings.max_daily_api_spend_usd != 0:
+        typer.echo("ENIGMA_MAX_DAILY_API_SPEND_USD must be 0. Refusing to start.")
+        raise typer.Exit(code=1)
+    limits_path = settings.registries_dir / "risk" / "limits.yaml"
+    limits = yaml.safe_load(limits_path.read_text(encoding="utf-8")) or {}
+    paper_off = limits.get("paper_trading_enabled") is False
+    live_off = limits.get("live_trading_enabled") is False
+    if not paper_off or not live_off:
+        typer.echo(f"{limits_path} must keep paper and live trading disabled. Refusing to start.")
+        raise typer.Exit(code=1)
+
+
+def _require_ollama() -> str:
+    try:
+        response = httpx.get("http://127.0.0.1:11434/api/version", timeout=3.0)
+        response.raise_for_status()
+    except Exception as exc:
+        typer.echo(f"Ollama is not reachable at http://127.0.0.1:11434 ({exc}).")
+        raise typer.Exit(code=1) from exc
+    version = response.json().get("version", "unknown")
+    return str(version)
+
+
+def _require_strategy_isolation() -> str:
+    from enigma.strategy.sandbox import SandboxRunner, SandboxUnavailableError  # noqa: PLC0415
+
+    try:
+        mode = SandboxRunner(allow_weak=False).check_isolation("startup")
+    except SandboxUnavailableError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from exc
+    return mode
+
+
 @app.command()
 def init() -> None:
     """Create state directories and migrate the control database."""
@@ -86,6 +121,12 @@ def research(
     """Submit a research objective (step 1) and, by default, run the cycle to completion."""
     from enigma.orchestrator.institution import perp  # noqa: PLC0415
 
+    settings = Settings.from_env()
+    _require_spend_and_trading(settings)
+    _require_ollama()
+    mode = _require_strategy_isolation()
+    os.environ.setdefault("ENIGMA_HYPOTHESIS_MODE", "llm")
+    typer.echo(f"strategy sandbox: {mode}")
     inst = _institution()
     already = set(inst.driver.active_cycles())
     try:
@@ -109,31 +150,18 @@ def research(
 
 @app.command()
 def up() -> None:
-    """Check spend and trading flags, confirm Ollama, recover orphans, run the daemon."""
+    """Check spend, trading flags, Ollama, and the strategy sandbox, then run."""
     settings = Settings.from_env()
-    if settings.max_daily_api_spend_usd != 0:
-        typer.echo("ENIGMA_MAX_DAILY_API_SPEND_USD must be 0. Refusing to start.")
-        raise typer.Exit(code=1)
-    limits_path = settings.registries_dir / "risk" / "limits.yaml"
-    limits = yaml.safe_load(limits_path.read_text(encoding="utf-8")) or {}
-    paper_off = limits.get("paper_trading_enabled") is False
-    live_off = limits.get("live_trading_enabled") is False
-    if not paper_off or not live_off:
-        typer.echo(f"{limits_path} must keep paper and live trading disabled. Refusing to start.")
-        raise typer.Exit(code=1)
+    _require_spend_and_trading(settings)
+    version = _require_ollama()
+    mode = _require_strategy_isolation()
     os.environ.setdefault("ENIGMA_HYPOTHESIS_MODE", "llm")
-    try:
-        response = httpx.get("http://127.0.0.1:11434/api/version", timeout=3.0)
-        response.raise_for_status()
-        version = response.json().get("version", "unknown")
-    except Exception as exc:
-        typer.echo(f"Ollama is not reachable at http://127.0.0.1:11434 ({exc}).")
-        raise typer.Exit(code=1) from exc
     inst = _institution()
     daemon = _daemon(inst)
     daemon.install_signal_handlers()
     typer.echo(f"home {settings.home}")
     typer.echo(f"Ollama {version}; spend cap $0; paper and live trading off")
+    typer.echo(f"strategy sandbox: {mode}")
     typer.echo(f"hypothesis mode {os.environ.get('ENIGMA_HYPOTHESIS_MODE')}")
 
     def _progress(iteration: int, status: str) -> None:
@@ -153,6 +181,7 @@ def run_daemon(
     max_iterations: int | None = None,
 ) -> None:
     """Run the autonomous loop (cycles, tasks, experiment chaining, schedules)."""
+    _require_strategy_isolation()
     inst = _institution()
     daemon = _daemon(inst)
     daemon.install_signal_handlers()
@@ -163,6 +192,7 @@ def run_daemon(
 @app.command()
 def resume() -> None:
     """Requeue orphaned tasks and continue every interrupted cycle until idle."""
+    _require_strategy_isolation()
     inst = _institution()
     daemon = _daemon(inst)
     daemon.install_signal_handlers()
@@ -203,6 +233,36 @@ def kill_switch(state: Annotated[str, typer.Argument(help="on | off")]) -> None:
     stores.flags.set(KILL_SWITCH, state, "human")
     stores.audit.record("human", "kill_switch.set", None, {"state": state})
     typer.echo(f"kill switch {state}")
+
+
+sandbox_app = typer.Typer(help="Strategy sandbox backends")
+app.add_typer(sandbox_app, name="sandbox")
+
+
+@sandbox_app.command("status")
+def sandbox_status() -> None:
+    """Print whether strategy code can run in a network namespace or a Linux container."""
+    from enigma.strategy.sandbox import SandboxRunner, SandboxUnavailableError  # noqa: PLC0415
+
+    try:
+        mode = SandboxRunner().check_isolation("status")
+    except SandboxUnavailableError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from exc
+    typer.echo(mode)
+
+
+@sandbox_app.command("prepare")
+def sandbox_prepare() -> None:
+    """Build the local Linux sandbox image and probe that its network stays closed."""
+    from enigma.strategy.sandbox_docker import prepare_sandbox_image  # noqa: PLC0415
+
+    try:
+        detail = prepare_sandbox_image()
+    except RuntimeError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from exc
+    typer.echo(detail)
 
 
 @app.command()

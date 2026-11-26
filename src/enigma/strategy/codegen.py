@@ -19,12 +19,25 @@ from enigma.schemas.governance import Budget, ExecutionMode, ModelProvenance
 from enigma.schemas.quant import CodegenAttempt, StrategyGenerationRecord, StrategySpec
 from enigma.schemas.research import CostModel, StrategyPackage
 from enigma.strategy.package import build_package
-from enigma.strategy.sandbox import SandboxJob, SandboxRunner
+from enigma.strategy.sandbox import SandboxJob, SandboxRunner, SandboxUnavailableError
 from enigma.strategy.static_check import check_source
 
 PROMPT_ID = "strategy.codegen"
 METHOD = "llm:strategy-codegen-v1"
 MAX_ATTEMPTS = 3
+
+
+_INFRA_SNIPPETS = (
+    "strategy isolation is not available",
+    "network namespace isolation unavailable",
+    "SandboxUnavailableError",
+    "docker sandbox",
+)
+
+
+def _sandbox_errors_are_infrastructure(errors: tuple[str, ...] | list[str]) -> bool:
+    text = " ".join(errors)
+    return any(snippet in text for snippet in _INFRA_SNIPPETS)
 
 
 def _failed_codegen_reason(attempts: list[CodegenAttempt]) -> str:
@@ -242,6 +255,27 @@ class StrategyCodeGenerator:
             dict(params) if params else dict(_default_params(spec))
         )
 
+        try:
+            SandboxRunner().check_isolation(spec.hypothesis_id)
+        except SandboxUnavailableError as exc:
+            self.last_package = None
+            return StrategyGenerationRecord(
+                id=new_id("sgrec"),
+                spec_id=spec.id,
+                hypothesis_id=spec.hypothesis_id,
+                role=role,
+                execution_mode=ExecutionMode.LLM,
+                prompt_ref=prompt.ref,
+                attempts=(),
+                ok=False,
+                package_id=None,
+                package_hash=None,
+                checks={"static": False, "sandbox_smoke": False},
+                failure_reason=str(exc)[:800],
+                created_by=actor,
+                created_at=now,
+            )
+
         for index in range(1, self.max_attempts + 1):
             try:
                 source, prov = self._call(prompt, spec, actor, task_id, budget, errors)
@@ -317,6 +351,8 @@ class StrategyCodeGenerator:
                 )
                 errors = list(smoke_errors)
                 package = None
+                if _sandbox_errors_are_infrastructure(smoke_errors):
+                    break
                 continue
 
             attempts.append(
@@ -333,6 +369,12 @@ class StrategyCodeGenerator:
 
         self.last_package = package
         ok = package is not None
+        if ok:
+            failure_reason = None
+        elif attempts and _sandbox_errors_are_infrastructure(attempts[-1].errors):
+            failure_reason = attempts[-1].errors[0][:800]
+        else:
+            failure_reason = _failed_codegen_reason(attempts)
         return StrategyGenerationRecord(
             id=new_id("sgrec"),
             spec_id=spec.id,
@@ -345,7 +387,7 @@ class StrategyCodeGenerator:
             package_id=package.id if package else None,
             package_hash=package.content_hash if package else None,
             checks={"static": ok, "sandbox_smoke": ok},
-            failure_reason=None if ok else _failed_codegen_reason(attempts),
+            failure_reason=failure_reason,
             created_by=actor,
             created_at=now,
         )

@@ -10,9 +10,10 @@ applies rlimits (CPU, address space, open files, file size, no core) and a wall-
 and scrubs the environment. Inside, an audit hook denies network, process, FFI and out-of-box
 file access and reports each denial. Positions come back as `.npy` files.
 
-If `unshare` cannot create the namespaces the runner fails closed with
-`SandboxUnavailableError`, unless the operator sets `ENIGMA_SANDBOX_ALLOW_WEAK=1` (local
-development only); weak runs are marked `isolation="weak"` and audited.
+If `unshare` cannot create the namespaces, and this host is macOS, the same child
+runs in a Linux container with `--network none` (see `sandbox_docker`). The runner
+still fails closed when neither backend is available. `ENIGMA_SANDBOX_ALLOW_WEAK=1`
+remains an explicit, audited escape for tests; the institution will not start on it.
 """
 
 from __future__ import annotations
@@ -43,6 +44,13 @@ from enigma.store.audit import AuditLog
 from enigma.strategy import interface as _interface
 from enigma.strategy.interface import ParamValue
 from enigma.strategy.package import verify_package
+from enigma.strategy.sandbox_docker import (
+    docker_backend_status as _docker_backend_status,
+)
+from enigma.strategy.sandbox_docker import (
+    isolation_unavailable_message,
+    spawn_docker,
+)
 from enigma.strategy.static_check import StrategyRejectedError, check_source
 
 ALLOW_WEAK_ENV = "ENIGMA_SANDBOX_ALLOW_WEAK"
@@ -55,7 +63,7 @@ _STDERR_TAIL = 4000
 
 
 class SandboxUnavailableError(EnigmaError):
-    """Network-namespace isolation is unavailable and weak mode was not explicitly allowed."""
+    """Neither a Linux network namespace nor a checked Docker sandbox is available."""
 
 
 class SandboxExecutionError(EnigmaError):
@@ -173,20 +181,28 @@ class SandboxRunner:
             self.audit.record(self.actor, action, subject, details)
 
     def check_isolation(self, subject_id: str) -> str:
-        """Return the isolation mode ("netns" or "weak"); raise if neither is permitted."""
+        """Return `netns`, `docker`, or `weak`. Raise when no real backend is available.
+
+        Linux namespaces win when they work. Docker is the macOS backend. Weak mode
+        is only the explicit `ENIGMA_SANDBOX_ALLOW_WEAK=1` escape and is not offered
+        as the remedy.
+        """
         if _netns_available():
             return "netns"
+        ready, detail = _docker_backend_status()
+        if ready:
+            return "docker"
         if self.allow_weak:
             self._record(
                 "sandbox.weak_mode",
                 subject_id,
-                {"reason": "unshare unavailable", "env": ALLOW_WEAK_ENV},
+                {"reason": "no netns or docker sandbox", "env": ALLOW_WEAK_ENV, "detail": detail},
             )
             return "weak"
-        self._record("sandbox.denied", subject_id, {"reason": "isolation_unavailable"})
-        raise SandboxUnavailableError(
-            f"network namespace isolation unavailable; set {ALLOW_WEAK_ENV}=1 only for local dev"
+        self._record(
+            "sandbox.denied", subject_id, {"reason": "isolation_unavailable", "detail": detail}
         )
+        raise SandboxUnavailableError(isolation_unavailable_message(detail))
 
     def run(
         self,
@@ -257,6 +273,7 @@ class SandboxRunner:
         package: StrategyPackage,
         datasets: Mapping[str, Mapping[str, np.ndarray]],
         jobs: Sequence[SandboxJob],
+        isolation: str,
     ) -> None:
         pkg = box / "pkg"
         (pkg / "enigma" / "strategy").mkdir(parents=True)
@@ -266,10 +283,12 @@ class SandboxRunner:
         (pkg / "strategy_module.py").write_text(package.source_code, encoding="utf-8")
         lib = box / "lib"
         lib.mkdir()
-        numpy_dir = Path(np.__file__).resolve().parent
-        (lib / "numpy").symlink_to(numpy_dir, target_is_directory=True)
-        if (numpy_dir.parent / "numpy.libs").is_dir():
-            (lib / "numpy.libs").symlink_to(numpy_dir.parent / "numpy.libs")
+        # The Docker image has its own Linux NumPy. A macOS wheel cannot be mounted in.
+        if isolation != "docker":
+            numpy_dir = Path(np.__file__).resolve().parent
+            (lib / "numpy").symlink_to(numpy_dir, target_is_directory=True)
+            if (numpy_dir.parent / "numpy.libs").is_dir():
+                (lib / "numpy.libs").symlink_to(numpy_dir.parent / "numpy.libs")
         shutil.copyfile(_CHILD_SOURCE, box / "_bootstrap.py")
         arrays: dict[str, Any] = _datasets_to_npz(datasets, package.required_columns)
         np.savez(box / "inputs.npz", **arrays)
@@ -286,7 +305,8 @@ class SandboxRunner:
                 }
                 for job in jobs
             ],
-            "read_roots": _numpy_read_roots(),
+            "read_roots": [] if isolation == "docker" else _numpy_read_roots(),
+            "discover_read_roots": isolation == "docker",
         }
         (box / "spec.json").write_text(json.dumps(spec, sort_keys=True), encoding="utf-8")
 
@@ -311,25 +331,38 @@ class SandboxRunner:
     ) -> SandboxResult:
         box = parent_dir / "box"
         box.mkdir()
-        self._prepare_box(box, package, datasets, jobs)
-        python = str(Path(sys.base_prefix) / "bin" / "python3")
-        if not Path(python).exists():
-            python = sys.executable
-        argv = [python, "-I", "-S", "-B", str(box / "_bootstrap.py")]
-        if isolation == "netns":
-            unshare = shutil.which("unshare") or "unshare"
-            argv = [unshare, "--user", "--map-root-user", "--net", "--", *argv]
-        env = {
-            "PATH": "/usr/bin:/bin",
-            "LANG": "C.UTF-8",
-            "HOME": str(box),
-            "TMPDIR": str(box),
-            "OPENBLAS_NUM_THREADS": "1",
-            "OMP_NUM_THREADS": "1",
-            "MKL_NUM_THREADS": "1",
-        }
+        self._prepare_box(box, package, datasets, jobs, isolation)
         start = time.monotonic()
-        exit_code, cpu, timed_out = self._spawn(argv, box, env, parent_dir)
+        if isolation == "docker":
+            exit_code, timed_out = spawn_docker(
+                box,
+                parent_dir,
+                name_seed=run_id,
+                wall_seconds=self.limits.wall_seconds,
+                cpu_seconds=self.limits.cpu_seconds,
+                memory_bytes=self.limits.address_space_bytes,
+                open_files=self.limits.open_files,
+                file_size_bytes=self.limits.file_size_bytes,
+            )
+            cpu = 0.0
+        else:
+            python = str(Path(sys.base_prefix) / "bin" / "python3")
+            if not Path(python).exists():
+                python = sys.executable
+            argv = [python, "-I", "-S", "-B", str(box / "_bootstrap.py")]
+            if isolation == "netns":
+                unshare = shutil.which("unshare") or "unshare"
+                argv = [unshare, "--user", "--map-root-user", "--net", "--", *argv]
+            env = {
+                "PATH": "/usr/bin:/bin",
+                "LANG": "C.UTF-8",
+                "HOME": str(box),
+                "TMPDIR": str(box),
+                "OPENBLAS_NUM_THREADS": "1",
+                "OMP_NUM_THREADS": "1",
+                "MKL_NUM_THREADS": "1",
+            }
+            exit_code, cpu, timed_out = self._spawn(argv, box, env, parent_dir)
         wall = time.monotonic() - start
         stderr_tail = (
             (parent_dir / "stderr.log").read_bytes()[-_STDERR_TAIL:].decode("utf-8", "replace")
@@ -348,6 +381,9 @@ class SandboxRunner:
             error = f"no result (exit {exit_code})"
         else:
             payload = json.loads(result_path.read_text(encoding="utf-8"))
+            reported = payload.get("cpu_seconds")
+            if isolation == "docker" and isinstance(reported, int | float):
+                cpu = float(reported)
             if not payload.get("ok"):
                 error = str(payload.get("error", "unknown error"))
             else:

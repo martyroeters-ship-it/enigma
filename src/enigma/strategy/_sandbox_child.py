@@ -1,9 +1,10 @@
 """Sandbox child bootstrap. Copied into the sandbox directory and run as a script.
 
-Runs under `python -I -S -B` inside an empty network namespace with rlimits applied by the
-parent. Imports only the standard library and NumPy. After NumPy is imported it installs a
-permanent audit hook that denies network, process, FFI, and file access outside the sandbox
-directory, and reports each denial to `violations.jsonl` through a pre-opened descriptor.
+The Linux namespace path runs this under `python -I -S -B` with NumPy linked from the host.
+The macOS path runs it under `python -I -B` inside a Linux image that already contains NumPy.
+After NumPy is imported it installs a permanent audit hook that denies network, process,
+FFI, and file access outside the sandbox directory, and reports each denial to
+`violations.jsonl` through a pre-opened descriptor.
 
 Exit codes: 0 ok, 1 strategy error, 2 bootstrap error, 3 policy violation.
 """
@@ -15,6 +16,7 @@ import json
 import os
 import resource
 import sys
+import sysconfig
 import traceback
 from typing import Any
 
@@ -209,15 +211,27 @@ def _run(spec: dict[str, Any], inputs: dict[str, np.ndarray]) -> tuple[dict[str,
     return report, outputs
 
 
+def _container_read_roots() -> list[str]:
+    """NumPy and the stdlib inside this interpreter. Used by the Linux container."""
+    roots = [os.path.dirname(os.path.realpath(np.__file__))]
+    libs = os.path.realpath(os.path.join(os.path.dirname(np.__file__), os.pardir, "numpy.libs"))
+    if os.path.isdir(libs):
+        roots.append(libs)
+    for key in ("stdlib", "platstdlib"):
+        roots.append(os.path.realpath(sysconfig.get_paths()[key]))
+    return roots
+
+
 def main() -> int:
     try:
         with open(os.path.join(BOX, "spec.json"), encoding="utf-8") as handle:
             spec = json.load(handle)
         out_dir = os.path.join(BOX, "out")
         os.makedirs(out_dir, exist_ok=True)
+        extra = _container_read_roots() if spec.get("discover_read_roots") else spec["read_roots"]
         _state["read_roots"] = tuple(
             os.path.realpath(r)
-            for r in [os.path.join(BOX, "pkg"), os.path.abspath(__file__), *spec["read_roots"]]
+            for r in [os.path.join(BOX, "pkg"), os.path.abspath(__file__), *extra]
         )
         _state["write_root"] = os.path.realpath(out_dir)
         _state["fd"] = os.open(
