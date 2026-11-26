@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from enigma.core.errors import PermissionDeniedError
 from enigma.core.hashing import canonical_json, sha256_of
 from enigma.schemas.common import Plane
+from enigma.schemas.cycle import MarketAnalysis, NextExperimentProposal, RiskReview
 from enigma.schemas.governance import (
     AgentDecision,
     ImprovementProposal,
@@ -40,6 +41,7 @@ from enigma.schemas.research import (
     StrategyPackage,
 )
 from enigma.schemas.validation import (
+    HoldoutManifest,
     RedactedValidationSummary,
     ValidationReport,
     ValidationRequest,
@@ -85,6 +87,10 @@ for _model, _kind, _plane in (
     (ValidationRequest, "validation_request", Plane.CONTROL),
     (RedactedValidationSummary, "validation_summary", Plane.CONTROL),
     (ValidationReport, "validation_report", Plane.VALIDATION),
+    (MarketAnalysis, "market_analysis", Plane.RESEARCH),
+    (NextExperimentProposal, "next_experiment", Plane.CONTROL),
+    (RiskReview, "risk_review", Plane.CONTROL),
+    (HoldoutManifest, "holdout_manifest", Plane.VALIDATION),
 ):
     register_kind(_model, _kind, _plane)
 

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Learning{% endblock %}
+{% block content %}
+<h1>Learning &amp; self-improvement</h1>
+
+<h2>Lessons</h2>
+{% if lr.lessons %}
+<table><tr><th>Lesson</th><th>Topics</th><th>Claim</th><th>Derived from</th></tr>
+{% for l in lr.lessons %}<tr><td>{{ l.statement }}</td><td>{{ l.topics|join(', ') }}</td><td>{{ l.claim_level }}</td><td class="mono">{{ l.derived_from_ids|length }} refs</td></tr>{% endfor %}
+</table>
+{% else %}<div class="empty">No lessons recorded.</div>{% endif %}
+
+<h2>Next-experiment proposals</h2>
+{% if lr.next_experiments %}
+<table><tr><th>Id</th><th>From cycle</th><th>Mechanism</th><th>Rationale</th><th>State</th><th>Child cycle</th></tr>
+{% for p in lr.next_experiments %}<tr><td class="mono">{{ p.id }}</td><td class="mono"><a href="/cycles/{{ p.parent_cycle_id }}">{{ p.parent_cycle_id }}</a></td><td>{{ p.mechanism_id }}</td><td>{{ p.rationale }}</td><td>{{ p.state }}</td><td class="mono">{{ p.child_cycle_id or '' }}</td></tr>{% endfor %}
+</table>
+{% else %}<div class="empty">No next experiments proposed.</div>{% endif %}
+
+<h2>Improvement proposals (approval-gated)</h2>
+{% if lr.improvements %}
+<table><tr><th>Id</th><th>Target</th><th>Change</th><th>Rationale</th><th>State</th></tr>
+{% for p in lr.improvements %}<tr><td class="mono">{{ p.id }}</td><td>{{ p.target }}</td><td>{{ p.change_summary }}</td><td>{{ p.rationale }}</td><td>{{ p.fsm_state or p.status }}</td></tr>{% endfor %}
+</table>
+{% else %}<div class="empty">No improvement proposals.</div>{% endif %}
+
+<h2>Agent reflections</h2>
+{% if lr.reflections %}
+<table><tr><th>UTC</th><th>Agent</th><th>Task</th><th>Outcome</th><th>Worked</th><th>Failed</th></tr>
+{% for r in lr.reflections %}<tr><td class="mono">{{ r.created_at }}</td><td>{{ r.agent }}</td><td class="mono">{{ r.task_id }}</td><td>{{ r.outcome }}</td><td>{{ r.what_worked|join('; ') }}</td><td>{{ r.what_failed|join('; ') }}</td></tr>{% endfor %}
+</table>
+{% else %}<div class="empty">No reflections yet.</div>{% endif %}
+{% endblock %}

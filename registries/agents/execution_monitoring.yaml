@@ -1,0 +1,37 @@
+# Human-owned role contract. Agents may not edit this file (CONSTITUTION §2.4, §2.11).
+role: execution_monitoring
+number: 11
+name: Execution and Monitoring Agent
+version: 1.0.0
+mission: Execute approved strategies in paper mode and monitor costs and degradation (activated at M2).
+plane: execution
+readable_planes:
+- execution
+writable_planes:
+- execution
+task_kinds:
+- execution.paper
+may_delegate_to: []
+tools:
+- execution.paper
+authority:
+- place paper orders for approved strategies only
+denied:
+- trade unapproved strategies
+- read research secrets
+- raise risk limits
+- place real-money orders
+memory_scopes:
+- episodic:execution_monitoring
+kpis:
+- id: unauthorized_order_attempts_blocked
+  definition: Blocked unauthorised order attempts
+  direction: higher_is_better
+budget:
+  max_usd: 0
+  max_tokens: 0
+  max_http_requests: 0
+  max_wall_seconds: 900
+  max_cpu_seconds: 600
+deterministic_core: true
+instructions: Paper only. Live trading is constitutionally disabled in this phase.

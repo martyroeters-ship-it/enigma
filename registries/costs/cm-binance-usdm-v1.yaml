@@ -1,0 +1,12 @@
+# Execution-cost assumptions for Binance USD-M perpetuals (BTCUSDT, ETHUSDT), conservative.
+# Fees: Binance VIP0 futures taker 0.05%, maker 0.02% (public fee schedule, retrieved 2026-11).
+# Spread/impact are deliberately pessimistic proxies for top-2 liquidity perps at <=$5M sleeves;
+# validation re-applies this model independently and G12 stresses it x2.
+version: cm-binance-usdm-v1
+taker_fee_bps: 5.0
+maker_fee_bps: 2.0
+half_spread_bps: 1.0
+impact_bps_per_million: 2.0
+apply_funding: true
+capacity_notional_usd: 5000000
+latency_bars: 1

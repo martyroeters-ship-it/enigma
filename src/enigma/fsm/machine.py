@@ -231,3 +231,12 @@ class StateMachineStore:
             (machine.name,),
         )
         return {str(r["to_state"]): int(r["n"]) for r in rows}
+
+    def created_since(self, machine: MachineDefinition, since: str) -> int:
+        """Number of subjects created (first event) at or after ISO timestamp `since`."""
+        row = self.db.query_one(
+            "SELECT COUNT(*) n FROM fsm_events WHERE machine = ? AND from_state IS NULL"
+            " AND ts >= ?",
+            (machine.name, since),
+        )
+        return int(row["n"]) if row else 0

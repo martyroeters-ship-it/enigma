@@ -1,0 +1,80 @@
+# Routing: ordered candidate aliases per AgentRole and task kind.
+#
+# Resolution order (first non-null field wins): roles.<role>.tasks.<task_kind> ->
+# roles.<role>.default -> defaults. Candidates are tried in order; a candidate is skipped when
+# its credentials are missing, its local server is unreachable, it lacks a required capability,
+# or its estimated cost breaks the budget / per-call ceiling / daily ceiling.
+#
+# Local models come last so paid models are preferred when configured and affordable, and
+# Enigma keeps working (at lower quality) with no API keys if a local server is running.
+# Validation-plane roles get commentary routes only: gate outcomes are never model-decided.
+
+defaults:
+  candidates: [claude-sonnet, gpt-5-mini, gemini-flash, deepseek-chat, openrouter-sonnet, local-qwen]
+  reasoning_effort: low
+  max_cost_per_call_usd: 0.10
+  max_output_tokens: 2048
+
+roles:
+  intelligence:
+    default:
+      candidates: [gemini-flash, gpt-5-mini, claude-haiku, deepseek-chat, local-qwen]
+      max_output_tokens: 4096
+    tasks:
+      intelligence.extract_hypothesis:
+        candidates: [claude-sonnet, gpt-5-mini, gemini-flash, local-qwen]
+        reasoning_effort: low
+        max_cost_per_call_usd: 0.15
+      intelligence.summarize_source:
+        candidates: [gemini-flash, claude-haiku, gpt-4.1-mini, local-qwen]
+        reasoning_effort: none
+        max_cost_per_call_usd: 0.05
+
+  quant_research:
+    default:
+      candidates: [gpt-5, claude-sonnet, gemini-pro, deepseek-reasoner, local-gpt-oss, local-qwen]
+      reasoning_effort: medium
+      max_cost_per_call_usd: 0.50
+      max_output_tokens: 4096
+    tasks:
+      quant_research.design_experiment:
+        reasoning_effort: high
+        max_cost_per_call_usd: 1.00
+        max_output_tokens: 8192
+
+  strategy_engineering:
+    default:
+      candidates: [claude-sonnet, gpt-5, gemini-pro, local-qwen]
+      reasoning_effort: medium
+      max_cost_per_call_usd: 0.50
+      max_output_tokens: 8192
+
+  meta_learning:
+    default:
+      candidates: [claude-sonnet, gpt-5-mini, gemini-flash, local-qwen]
+      reasoning_effort: medium
+      max_cost_per_call_usd: 0.25
+
+  cio:
+    default:
+      candidates: [gpt-5-mini, claude-haiku, gemini-flash, local-qwen]
+      reasoning_effort: low
+      max_cost_per_call_usd: 0.05
+
+  technology_innovation:
+    default:
+      candidates: [gpt-5-mini, claude-haiku, gemini-flash, local-qwen]
+      reasoning_effort: low
+      max_cost_per_call_usd: 0.10
+
+  independent_validation:
+    default:                     # report commentary only; never gate decisions
+      candidates: [claude-haiku, gemini-flash, local-qwen]
+      reasoning_effort: none
+      max_cost_per_call_usd: 0.02
+
+  risk_management:
+    default:                     # commentary only; limits are enforced by deterministic code
+      candidates: [claude-haiku, gemini-flash, local-qwen]
+      reasoning_effort: none
+      max_cost_per_call_usd: 0.02

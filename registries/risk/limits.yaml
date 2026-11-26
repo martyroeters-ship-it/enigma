@@ -1,0 +1,10 @@
+# Risk limits (risk_service). Changing this file is a protected change (human approval).
+version: risk-limits-m1-1
+# M1 ships research and validation only; paper trading stays disabled until the execution plane
+# (WS10) exists, so every candidate receives a veto with reason paper_trading_disabled.
+paper_trading_enabled: false
+live_trading_enabled: false # constitutional: never true
+max_gross_leverage: 1.0
+max_sleeve_notional_usd: 1000000
+max_drawdown_research: 0.35
+min_holdout_net_sharpe: 0.5

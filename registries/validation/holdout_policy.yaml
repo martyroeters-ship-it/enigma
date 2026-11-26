@@ -1,0 +1,9 @@
+# Research data window (human-owned; ADR-013, ADR-015).
+#
+# The holdout boundary is not configured here: the validation service seals it on first use per
+# symbol set (protocol G02: the last `holdout_fraction` of the validation plane's available range,
+# minus the embargo) and persists the manifest in the validation-plane database. The control
+# plane only receives the research cutoff, so research cannot probe or move the holdout. Reuse of
+# one holdout across many hypotheses is accounted for by the trial ledger (G06/G07); a fresh
+# boundary requires a new protocol version.
+data_start: "2020-01-01"

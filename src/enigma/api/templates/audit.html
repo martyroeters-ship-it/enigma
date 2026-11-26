@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Audit &amp; costs{% endblock %}
+{% block content %}
+<h1>Audit log &amp; costs</h1>
+<h2>Cost ledger</h2>
+<p class="mono">Totals: {{ costs.totals }}</p>
+{% if costs.by_actor %}
+<table><tr><th>Actor</th><th>USD</th><th>Tokens</th><th>HTTP requests</th><th>CPU s</th></tr>
+{% for a, c in costs.by_actor.items() %}<tr><td>{{ a }}</td><td>{{ '%.4f'|format(c.get('usd',0)) }}</td><td>{{ c.get('tokens',0)|int }}</td><td>{{ c.get('http_requests',0)|int }}</td><td>{{ '%.1f'|format(c.get('cpu_seconds',0)) }}</td></tr>{% endfor %}
+</table>
+{% endif %}
+<h2>Hash-chained audit log (latest {{ entries|length }})</h2>
+<table><tr><th>Seq</th><th>UTC</th><th>Actor</th><th>Action</th><th>Subject</th><th>Details</th><th>Hash</th></tr>
+{% for e in entries %}<tr><td>{{ e.seq }}</td><td class="mono">{{ e.ts }}</td><td>{{ e.actor }}</td><td>{{ e.action }}</td><td class="mono">{{ e.subject_id or '' }}</td><td class="mono">{{ (e.details|tojson)[:200] }}</td><td class="mono">{{ e.entry_hash[:12] }}</td></tr>{% endfor %}
+</table>
+{% endblock %}

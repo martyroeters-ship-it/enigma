@@ -1,0 +1,16 @@
+# Autonomous-operation schedule for `enigma run`. Spending is capped separately: per-task role
+# budgets (registries/agents) and the global daily model-spend cap ENIGMA_MAX_DAILY_API_SPEND_USD
+# (default 0 = no paid model calls).
+version: schedules-1
+poll_interval_seconds: 2
+heartbeat_seconds: 15
+# Chain the meta-learning agent's next-experiment proposal into a child research cycle.
+auto_next_experiment: true
+max_cycles_per_day: 4
+max_concurrent_cycles: 1
+# Technology Innovation scan of new tools/papers relevant to the stack.
+tech_scan_interval_hours: 24
+tech_scan_topics:
+  - backtesting framework python vectorized
+  - deflated sharpe ratio multiple testing
+  - crypto perpetual funding rate dataset

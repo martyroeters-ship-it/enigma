@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -134,6 +135,28 @@ class TaskQueue:
                 (status.value, canonical_json(task), _iso(now), task_id),
             )
         return task
+
+    def requeue_orphans(self, is_alive: Callable[[str], bool]) -> list[str]:
+        """Return running tasks whose lease owner is no longer alive to pending (crash recovery)."""
+        requeued: list[str] = []
+        now = datetime.now(UTC)
+        with self.db.transaction() as conn:
+            rows = conn.execute(
+                "SELECT body, lease_owner FROM task_queue WHERE status = 'running'"
+            ).fetchall()
+            for row in rows:
+                if row["lease_owner"] and is_alive(str(row["lease_owner"])):
+                    continue
+                task = Task.model_validate_json(row["body"]).model_copy(
+                    update={"status": TaskStatus.PENDING, "updated_at": now}
+                )
+                conn.execute(
+                    "UPDATE task_queue SET status = 'pending', body = ?, lease_owner = NULL,"
+                    " lease_expires_at = NULL, updated_at = ? WHERE id = ?",
+                    (canonical_json(task), _iso(now), task.id),
+                )
+                requeued.append(task.id)
+        return requeued
 
     def list(
         self,

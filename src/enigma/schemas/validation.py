@@ -74,9 +74,32 @@ class ValidationReport(StrictModel):
 class RedactedValidationSummary(StrictModel):
     """What the research plane may see: pass/fail per gate, no holdout path structure."""
 
+    id: NonEmptyStr
     report_id: NonEmptyStr
     strategy_package_id: NonEmptyStr
     protocol_version: NonEmptyStr
     overall: GateOutcome
     gate_outcomes: dict[str, GateOutcome]
     failed_gate_names: tuple[str, ...]
+
+
+class HoldoutManifest(StrictModel):
+    """Sealed holdout boundary for a symbol set; stored only in the validation-plane DB.
+
+    Fixed at first validation so the holdout never moves as new data arrives; the content hash
+    detects any later change to the holdout rows served by the holdout source.
+    """
+
+    id: NonEmptyStr
+    symbols: tuple[str, ...] = Field(min_length=1)
+    frequency: NonEmptyStr
+    protocol_version: NonEmptyStr
+    holdout_fraction: float = Field(gt=0.0, lt=1.0)
+    data_start: UtcDatetime
+    data_end: UtcDatetime
+    holdout_start: UtcDatetime
+    n_bars_total: int = Field(ge=1)
+    n_holdout_bars: int = Field(ge=1)
+    holdout_content_hash: Sha256
+    dataset_ids: tuple[str, ...] = Field(min_length=1)
+    created_at: UtcDatetime
