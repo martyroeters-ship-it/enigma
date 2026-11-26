@@ -581,8 +581,7 @@ class StrategyEngineeringAgent(Agent):
                 decision.outcome,
                 "compiled_registered_mechanism",
                 "Compiled the registered template for the mechanism the hypothesis "
-                "selected. No unrestricted Python was generated. "
-                + decision.reasoning_summary,
+                "selected. No unrestricted Python was generated. " + decision.reasoning_summary,
                 input_refs=decision.input_refs,
                 output_refs=decision.output_refs,
                 execution_mode=decision.execution_mode,

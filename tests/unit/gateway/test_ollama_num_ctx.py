@@ -11,9 +11,9 @@ import httpx
 from enigma.gateway.gateway import estimate_input_tokens
 from enigma.gateway.providers.base import ProviderCall, billable_output_cap
 from enigma.gateway.providers.ollama import OllamaAdapter, compact_json_schema, ollama_num_ctx
-from enigma.schemas.quant import HypothesisProposal
 from enigma.gateway.registry import ModelSpec, ProviderSpec
 from enigma.gateway.types import Message, MessageRole, ModelRequest, ReasoningEffort
+from enigma.schemas.quant import HypothesisProposal
 
 
 def _call(content: str, *, cap: int = 256, window: int = 32768) -> ProviderCall:

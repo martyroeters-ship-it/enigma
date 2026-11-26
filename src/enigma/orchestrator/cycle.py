@@ -273,16 +273,20 @@ class CycleDriver:
 
     def _reuse_prior_research(self, topic: str, keywords: list[str]) -> dict[str, Any] | None:
         """Copy a succeeded search for this exact topic instead of repeating the same queries."""
-        wanted = self._statement_key(topic) + "|" + ",".join(
-            sorted(self._statement_key(k) for k in keywords)
+        wanted = (
+            self._statement_key(topic)
+            + "|"
+            + ",".join(sorted(self._statement_key(k) for k in keywords))
         )
         for task in self.stores.queue.list(status=TaskStatus.SUCCEEDED, limit=200):
             if task.kind != "intelligence.research":
                 continue
             prior_topic = str(task.inputs.get("topic", ""))
             prior_keywords = [str(k) for k in task.inputs.get("keywords", [])]
-            key = self._statement_key(prior_topic) + "|" + ",".join(
-                sorted(self._statement_key(k) for k in prior_keywords)
+            key = (
+                self._statement_key(prior_topic)
+                + "|"
+                + ",".join(sorted(self._statement_key(k) for k in prior_keywords))
             )
             if key != wanted:
                 continue
