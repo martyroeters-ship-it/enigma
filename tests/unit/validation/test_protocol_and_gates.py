@@ -8,11 +8,15 @@ import pytest
 
 from enigma.backtest.statistics import DeflatedSharpe
 from enigma.core.errors import IntegrityError
-from enigma.schemas.validation import GateOutcome
+from enigma.schemas.validation import GateOutcome, GateResult, aggregate
 from enigma.strategy.leakage import TruncationCheckResult, TruncationMismatch
 from enigma.validation import PROTOCOL_SHA256, load_protocol
 from enigma.validation import gates as gate_lib
-from enigma.validation.protocol import DEFAULT_PROTOCOL_PATH
+from enigma.validation.protocol import (
+    DEFAULT_PROTOCOL_PATH,
+    PROTOCOL_VERSION,
+    resolve_protocol_version,
+)
 
 
 def test_protocol_loads_with_pinned_hash() -> None:
@@ -22,6 +26,46 @@ def test_protocol_loads_with_pinned_hash() -> None:
     assert protocol.periods_per_year == 1095
     assert protocol.sha256 == PROTOCOL_SHA256
     assert hashlib.sha256(DEFAULT_PROTOCOL_PATH.read_bytes()).hexdigest() == PROTOCOL_SHA256
+
+
+def test_protocol_1_0_0_promotes_former_informative_gates() -> None:
+    protocol = load_protocol(version="1.0.0")
+    assert protocol.version == "1.0.0"
+    assert "G04" in protocol.required_gates
+    assert "G08" in protocol.required_gates
+    assert "G15" in protocol.required_gates
+    assert protocol.gates["G04"]["n_folds"] == 6
+    assert protocol.gates["G15"]["benchmarks"] == ["flat", "buy_and_hold_perp"]
+
+
+def _gate(gate_id: str, result: GateOutcome) -> GateResult:
+    return GateResult(
+        gate_id=gate_id,
+        name=gate_id,
+        result=result,
+        stat=1.0,
+        threshold=0.0,
+        comparator=">=",
+    )
+
+
+def test_protocol_opt_in_changes_the_required_set_without_flipping_the_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Activation is ENIGMA_VALIDATION_PROTOCOL=1.0.0. The pinned default stays the slice."""
+    assert PROTOCOL_VERSION == "0.1.0-slice"
+    monkeypatch.delenv("ENIGMA_VALIDATION_PROTOCOL", raising=False)
+    assert resolve_protocol_version() == "0.1.0-slice"
+    assert load_protocol().version == "0.1.0-slice"
+    monkeypatch.setenv("ENIGMA_VALIDATION_PROTOCOL", "1.0.0")
+    opted = load_protocol()
+    assert opted.version == "1.0.0"
+    slice_required = load_protocol(version="0.1.0-slice").required_gates
+    gates = tuple(_gate(gate_id, GateOutcome.PASS) for gate_id in slice_required)
+    gates = (*gates, _gate("G04", GateOutcome.FAIL))
+    assert aggregate(gates, slice_required) is GateOutcome.PASS
+    assert aggregate(gates, opted.required_gates) is GateOutcome.FAIL
+    assert PROTOCOL_VERSION == "0.1.0-slice"
 
 
 def test_protocol_edit_fails_closed(tmp_path: Path) -> None:

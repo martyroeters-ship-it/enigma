@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Models{% endblock %}
+{% block content %}
+<h1>Model usage</h1>
+<p class="muted">LLM-powered decisions are labelled <span class="mono">llm</span>. Deterministic
+paths and explicit fallbacks are never shown as model reasoning.</p>
+<div class="grid">
+  <div class="card"><div class="k">Model calls</div><div class="v">{{ m.total_model_calls }}</div></div>
+  <div class="card"><div class="k">Tokens</div><div class="v">{{ m.total_tokens }}</div></div>
+  <div class="card"><div class="k">Cost (USD)</div><div class="v">{{ '%.4f'|format(m.total_cost_usd) }}</div></div>
+  {% for mode, n in m.decisions_by_execution_mode.items() %}
+  <div class="card"><div class="k">Decisions · {{ mode }}</div><div class="v">{{ n }}</div></div>
+  {% endfor %}
+</div>
+
+<h2>Recent model calls</h2>
+{% if m.model_calls %}
+<table>
+  <tr><th>Agent</th><th>Decision</th><th>Provider / model</th><th>Prompt</th><th>Tokens</th><th>Cost</th><th>ms</th></tr>
+  {% for c in m.model_calls[:80] %}
+  <tr>
+    <td class="mono">{{ c.agent }}</td>
+    <td>{{ c.decision_type }}</td>
+    <td class="mono">{{ c.provider }}/{{ c.model_id }} <span class="muted">{{ c.model_version[:16] }}</span></td>
+    <td class="mono">{{ c.prompt_ref or '—' }}</td>
+    <td>{{ c.input_tokens + c.output_tokens }}{% if c.cached %} <span class="pill">cached</span>{% endif %}</td>
+    <td>{{ '%.4f'|format(c.cost_usd) }}</td>
+    <td>{{ '%.0f'|format(c.latency_ms) }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<div class="empty">No LLM calls recorded yet. Decisions so far are deterministic or labelled fallbacks.</div>
+{% endif %}
+{% endblock %}

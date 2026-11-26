@@ -13,6 +13,7 @@ from enigma.validation.holdout import (
     frame_content_hash,
 )
 from enigma.validation.protocol import (
+    PROTOCOL_REGISTRY,
     PROTOCOL_SHA256,
     PROTOCOL_VERSION,
     ValidationProtocol,
@@ -28,6 +29,7 @@ from enigma.validation.service import (
 __all__ = [
     "GATE_FAILURE_KIND",
     "INFORMATIVE_GATES",
+    "PROTOCOL_REGISTRY",
     "PROTOCOL_SHA256",
     "PROTOCOL_VERSION",
     "HoldoutCustody",

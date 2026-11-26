@@ -14,8 +14,8 @@
 
 <h2>Decision records</h2>
 {% if decisions %}
-<table><tr><th>UTC</th><th>Agent</th><th>Type</th><th>Outcome</th><th>Reason code</th><th>Reasoning summary</th></tr>
-{% for d in decisions %}<tr><td class="mono">{{ d.created_at }}</td><td>{{ d.agent }}</td><td>{{ d.decision_type }}</td><td>{{ d.outcome }}</td><td class="mono">{{ d.reason_code }}</td><td>{{ d.reasoning_summary }}</td></tr>{% endfor %}
+<table><tr><th>UTC</th><th>Agent</th><th>Type</th><th>Outcome</th><th>Mode</th><th>Reason code</th><th>Reasoning summary</th></tr>
+{% for d in decisions %}<tr><td class="mono">{{ d.created_at }}</td><td>{{ d.agent }}</td><td>{{ d.decision_type }}</td><td>{{ d.outcome }}</td><td class="mono">{{ d.execution_mode or 'deterministic' }}</td><td class="mono">{{ d.reason_code }}</td><td>{{ d.reasoning_summary }}</td></tr>{% endfor %}
 </table>
 {% else %}<div class="empty">No decisions recorded yet.</div>{% endif %}
 {% endblock %}

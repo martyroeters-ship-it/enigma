@@ -20,6 +20,7 @@ Values are read from the environment at call time and are never stored, logged, 
 | Polite-pool contact | `ENIGMA_CONTACT_EMAIL` | Contact address sent to OpenAlex and Crossref |
 | Search: Semantic Scholar | `SEMANTIC_SCHOLAR_API_KEY` | Adds Semantic Scholar (keyless access is rate limited, 429) |
 | Search: GitHub | `GITHUB_TOKEN` | Raises GitHub search rate limits (works unauthenticated) |
+| Structured decisions (evaluated, not integrated) | `TYPESAFE_API_KEY` | Official TypeSafe Jev (`api.typesafe.ai` only). See `docs/technology/jev-typesafe-assessment.md`. Do **not** use jevai.net. |
 | Search: web | `BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `SERPAPI_API_KEY` | Adds general web search providers |
 
 Where models are used once a key and a non-zero spend cap are present: the Quant Research

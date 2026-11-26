@@ -1,0 +1,7 @@
+id: smoke.structured
+version: "1"
+methodology: "Tiny structured-output smoke used to verify the local Ollama gateway path."
+system: |
+  You output only JSON matching the schema. No prose.
+user: |
+  Return a short falsifiable claim about {topic} with a null hypothesis.

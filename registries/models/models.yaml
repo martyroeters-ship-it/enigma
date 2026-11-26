@@ -201,6 +201,14 @@ models:
       reasoning_efforts: [low, medium, high]
 
   # --- Local (zero marginal cost; operator hardware) -------------------------
+  local-qwen-3b:
+    provider: ollama
+    model_id: qwen2.5:3b
+    context_window: 32768
+    max_output_tokens: 4096
+    capabilities:
+      structured_output: json_schema
+      tools: true
   local-qwen:
     provider: ollama
     model_id: qwen2.5:7b-instruct

@@ -290,6 +290,13 @@ Automated unless marked manual.
 
 Each requires its own acceptance list before start (ADR).
 
+**Capability overlay (2026-11-25):** hybrid ML, narrative intelligence, probability calibration,
+decision postmortems, and prediction-market research feeds are scheduled in
+[ROADMAP_CAPABILITIES.md](./ROADMAP_CAPABILITIES.md). They do not replace the table above; they
+attach as M2.1 / M3 / M4 / later work packages without changing the frozen M2 acceptance criteria
+of the intelligent-research milestone. **M3 includes CAP-JEV** (DecisionProvider + official TypeSafe
+Jev benchmark/integration decision) as a named deliverable.
+
 ---
 
 ## 7. Cross-cutting SLAs for implementers

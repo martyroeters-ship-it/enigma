@@ -194,7 +194,9 @@ class FakeServices:
             created_at=datetime.now(UTC),
         )
 
-    def backtest_run(self, package_id: str, dataset_version_id: str, seed: int) -> dict[str, Any]:
+    def backtest_run(
+        self, package_id: str, dataset_version_id: str, seed: int, budget: Any = None
+    ) -> dict[str, Any]:
         self.calls.append("backtest")
         score = int(sha256_of(package_id)[7:15], 16) / 0xFFFFFFFF
         metrics = {

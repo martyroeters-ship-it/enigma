@@ -21,8 +21,9 @@ from enigma.gateway.gateway import (
     estimate_input_tokens,
     validate_structured,
 )
+from enigma.gateway.prompts import PromptRegistry, PromptTemplate
 from enigma.gateway.registry import ModelRegistry, ModelSpec, ProviderSpec, ResolvedRoute
-from enigma.gateway.structured import StructuredLLM
+from enigma.gateway.structured import StructuredLLM, Traced, provenance_of
 from enigma.gateway.types import (
     FinishReason,
     Message,
@@ -53,6 +54,8 @@ __all__ = [
     "ModelResponse",
     "ModelSpec",
     "NamedToolChoice",
+    "PromptRegistry",
+    "PromptTemplate",
     "ProviderCallError",
     "ProviderSpec",
     "ProviderStatus",
@@ -65,7 +68,9 @@ __all__ = [
     "ToolCall",
     "ToolChoice",
     "ToolSpec",
+    "Traced",
     "Usage",
     "estimate_input_tokens",
+    "provenance_of",
     "validate_structured",
 ]

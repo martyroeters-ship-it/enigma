@@ -7,6 +7,7 @@ can fall back to deterministic logic explicitly; it never returns a fabricated o
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TypeVar
 
 from pydantic import BaseModel
@@ -23,9 +24,36 @@ from enigma.gateway.types import (
     RequestMetadata,
 )
 from enigma.schemas.common import AgentRole
-from enigma.schemas.governance import Budget
+from enigma.schemas.governance import Budget, ModelProvenance
 
 T = TypeVar("T", bound=BaseModel)
+
+
+@dataclass(frozen=True)
+class Traced[V: BaseModel]:
+    """A validated structured value plus the gateway response that produced it."""
+
+    value: V
+    response: ModelResponse
+
+
+def provenance_of(response: ModelResponse, prompt_ref: str | None = None) -> ModelProvenance:
+    return ModelProvenance(
+        provider=response.provider,
+        model_id=response.model_id,
+        model_version=response.model_version,
+        request_hash=response.request_hash,
+        raw_response_hash=response.raw_response_hash,
+        prompt_ref=prompt_ref,
+        input_tokens=response.usage.input_tokens,
+        output_tokens=response.usage.output_tokens,
+        cost_usd=response.cost_usd,
+        latency_ms=response.latency_ms,
+        cached=response.cached,
+        structured_mode=response.structured_mode,
+        repaired=response.repaired,
+        finish_reason=response.finish_reason.value,
+    )
 
 
 class StructuredLLM:
@@ -50,7 +78,34 @@ class StructuredLLM:
         reasoning_effort: ReasoningEffort | None = None,
         max_output_tokens: int | None = None,
     ) -> T:
-        """Return a validated `model_cls` instance.
+        return self.generate_traced(
+            model_cls,
+            system,
+            user,
+            actor,
+            task_id,
+            budget,
+            task_kind=task_kind,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            max_output_tokens=max_output_tokens,
+        ).value
+
+    def generate_traced(
+        self,
+        model_cls: type[T],
+        system: str,
+        user: str,
+        actor: AgentRole,
+        task_id: str | None,
+        budget: Budget,
+        *,
+        task_kind: str | None = None,
+        model: str | None = None,
+        reasoning_effort: ReasoningEffort | None = None,
+        max_output_tokens: int | None = None,
+    ) -> Traced[T]:
+        """Return a validated `model_cls` instance with its response provenance.
 
         Raises `ProviderUnavailableError` (nothing configured / all candidates failed),
         `BudgetExceededError`, or `StructuredOutputError`.
@@ -79,4 +134,4 @@ class StructuredLLM:
             raise StructuredOutputError(
                 f"model returned no {model_cls.__name__} (finish={response.finish_reason})"
             )
-        return response.parsed
+        return Traced(response.parsed, response)

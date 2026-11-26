@@ -105,12 +105,17 @@ RESEARCH_CYCLE_STEPS: tuple[str, ...] = (
 RESEARCH_CYCLE = MachineDefinition(
     name="research_cycle",
     initial=RESEARCH_CYCLE_STEPS[0],
-    terminal=frozenset({"COMPLETED", "ABORTED"}),
+    terminal=frozenset({"COMPLETED", "ABORTED", "DEFERRED"}),
     transitions=(
         *(_t(a, b, _CIO) for a, b in pairwise(RESEARCH_CYCLE_STEPS)),
         _t(RESEARCH_CYCLE_STEPS[-1], "COMPLETED", _CIO),
     ),
-    global_transitions=(_t("*", "ABORTED", _CIO, _HUMAN, _RISK, _RISK_SVC),),
+    global_transitions=(
+        _t("*", "ABORTED", _CIO, _HUMAN, _RISK, _RISK_SVC),
+        # Hypothesis checks rejected every draft. The cycle keeps the failure and
+        # hands the daemon a next-experiment proposal instead of dying in ABORTED.
+        _t("*", "DEFERRED", _CIO),
+    ),
 )
 
 ALL_MACHINES: tuple[MachineDefinition, ...] = (

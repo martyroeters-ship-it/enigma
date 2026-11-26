@@ -7,6 +7,7 @@ delegation is idempotent, and every step is checkpointed before the next begins.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -23,14 +24,19 @@ from enigma.core.errors import InvalidTransitionError
 from enigma.core.hashing import sha256_hex, sha256_of
 from enigma.core.ids import new_id
 from enigma.fsm import RESEARCH_CYCLE, STRATEGY_LIFECYCLE, StateMachineStore
-from enigma.schemas.common import AgentRole, Instrument
+from enigma.learning.abort import lessons_from_aborted_cycle
+from enigma.research.mechanisms import MECHANISMS
+from enigma.schemas.common import AgentRole, ClaimLevel, Instrument
+from enigma.schemas.cycle import NextExperimentProposal
 from enigma.schemas.governance import Task, TaskStatus
+from enigma.schemas.knowledge import Lesson
 from enigma.schemas.research import ResearchObjective
 from enigma.schemas.validation import RedactedValidationSummary, ValidationRequest
 from enigma.store import Stores
 
 WORKFLOW = "research_cycle"
 CIO = AgentRole.CIO
+_CHECK_FAILURE = "no_proposal_survived_checks"
 
 
 @dataclass(frozen=True)
@@ -148,11 +154,45 @@ class CycleDriver:
     def abort(self, cycle_id: str, reason: str) -> None:
         state = self._state(cycle_id)
         state["abort_reason"] = reason
+        step = self.fsm.state(RESEARCH_CYCLE, cycle_id)
         try:
             self.fsm.transition(RESEARCH_CYCLE, cycle_id, "ABORTED", CIO.value, reason[:200])
         except InvalidTransitionError:
             return
+        lessons = lessons_from_aborted_cycle(
+            cycle_id,
+            reason,
+            step=step,
+            hypothesis_id=state.get("hypothesis_id"),
+            now=self.clock.now(),
+        )
+        for les in lessons:
+            self.stores.documents.put(les, recorded_by=CIO.value)
+        state["abort_lesson_ids"] = [les.id for les in lessons]
+        if lessons and not self.stores.documents.list(
+            NextExperimentProposal, where={"parent_cycle_id": cycle_id}
+        ):
+            mechanism_id = sorted(MECHANISMS)[0]
+            proposal = NextExperimentProposal(
+                id="nxp_" + sha256_hex(f"{cycle_id}|abort")[:26].upper(),
+                parent_cycle_id=cycle_id,
+                parent_hypothesis_id=state.get("hypothesis_id"),
+                mechanism_id=mechanism_id,
+                hypothesis_delta={"mechanism": mechanism_id, "reason": "aborted"},
+                rationale=lessons[0].statement,
+                lesson_ids=(lessons[0].id,),
+                proposed_by=CIO,
+                created_at=self.clock.now(),
+            )
+            self.stores.documents.put(proposal, recorded_by=CIO.value)
+            state["next_proposal_id"] = proposal.id
         self._save(cycle_id, state, "aborted")
+        self.stores.audit.record(
+            CIO.value,
+            "cycle.aborted_lessons",
+            cycle_id,
+            {"lesson_ids": state["abort_lesson_ids"], "step": step, "reason": reason[:200]},
+        )
 
     @staticmethod
     def _failed(*tasks: Task) -> Task | None:
@@ -171,7 +211,7 @@ class CycleDriver:
         if self.stores.flags.kill_switch_active():
             return False
         step = self.fsm.state(RESEARCH_CYCLE, cycle_id)
-        if step in (None, "COMPLETED", "ABORTED"):
+        if step in (None, "COMPLETED", "ABORTED", "DEFERRED"):
             return False
         state = self._state(cycle_id)
         handler = getattr(self, f"_from_{step.lower()}")
@@ -266,17 +306,29 @@ class CycleDriver:
         if not self._done(micro):
             self._save(cycle_id, state)
             return False
+        recovering = bool(state.get("hypothesis_recovery"))
+        quant_inputs: dict[str, Any] = {
+            "objective_id": state["objective_id"],
+            "evidence_ids": state["evidence_ids"],
+            "dataset_version_id": dataset_id,
+            "analysis_id": micro.outputs["analysis_id"],
+            "proposal_id": state.get("proposal_id"),
+            "cycle_id": cycle_id,
+        }
+        # Opt-in LLM hypothesis path (default remains deterministic templates).
+        if os.environ.get("ENIGMA_HYPOTHESIS_MODE", "").strip().lower() == "llm":
+            quant_inputs["hypothesis_mode"] = "llm"
+        if recovering:
+            quant_inputs["recovery"] = "alternate"
+            quant_inputs["excluded_mechanisms"] = list(state.get("excluded_mechanisms", []))
+            quant_inputs["rejected_generation_id"] = state.get("rejected_generation_ids", [None])[
+                -1
+            ]
         quant = self._task(
             cycle_id,
             "quant.hypothesize",
-            {
-                "objective_id": state["objective_id"],
-                "evidence_ids": state["evidence_ids"],
-                "dataset_version_id": dataset_id,
-                "analysis_id": micro.outputs["analysis_id"],
-                "proposal_id": state.get("proposal_id"),
-                "cycle_id": cycle_id,
-            },
+            quant_inputs,
+            key="hypothesis-recovery" if recovering else "",
         )
         state["tasks"]["quant"] = quant.id
         if (failed := self._failed(quant)) is not None:
@@ -285,6 +337,8 @@ class CycleDriver:
         if not self._done(quant):
             self._save(cycle_id, state)
             return False
+        if quant.outputs.get("failure_reason") == _CHECK_FAILURE:
+            return self._hypothesis_checks_rejected(cycle_id, state, quant)
         state["hypothesis_id"] = quant.outputs["hypothesis_id"]
         state["dataset_version_id"] = dataset_id
         self._advance(
@@ -295,6 +349,77 @@ class CycleDriver:
             {"hypothesis": str(quant.outputs["hypothesis_id"])},
         )
         return True
+
+    def _hypothesis_checks_rejected(
+        self, cycle_id: str, state: dict[str, Any], quant: Task
+    ) -> bool:
+        """One alternate library mechanism, then a deferral the daemon can chain."""
+        generation_id = quant.outputs.get("generation_id")
+        rejected = list(state.get("rejected_generation_ids", []))
+        if generation_id and generation_id not in rejected:
+            rejected.append(generation_id)
+        state["rejected_generation_ids"] = rejected
+        domains = [str(item) for item in quant.outputs.get("rejected_domains") or []]
+        state["excluded_mechanisms"] = sorted(
+            set(state.get("excluded_mechanisms", [])) | set(domains)
+        )
+        if not state.get("hypothesis_recovery"):
+            state["hypothesis_recovery"] = True
+            state["rejected_quant_task_id"] = quant.id
+            self._save(cycle_id, state)
+            self.stores.audit.record(
+                CIO.value,
+                "cycle.hypothesis_recovery",
+                cycle_id,
+                {"generation_ids": rejected, "excluded": state["excluded_mechanisms"]},
+            )
+            return True
+        self._defer_hypothesis(cycle_id, state)
+        return True
+
+    def _defer_hypothesis(self, cycle_id: str, state: dict[str, Any]) -> None:
+        now = self.clock.now()
+        mechanism_id = sorted(MECHANISMS)[0]
+        lesson = Lesson(
+            id="les_" + sha256_hex(f"{cycle_id}|hypothesis-defer")[:26].upper(),
+            statement=(
+                "No hypothesis survived programmatic checks, including one alternate "
+                f"library direction. Next research is deferred to {mechanism_id}. "
+                "Rejected generations remain stored."
+            ),
+            topics=("hypothesis", "no_proposal_survived_checks", mechanism_id),
+            derived_from_ids=tuple(state.get("rejected_generation_ids") or [cycle_id]),
+            outcome="failure",
+            claim_level=ClaimLevel.L1_HYPOTHESIS,
+            created_by=CIO,
+            created_at=now,
+        )
+        proposal = NextExperimentProposal(
+            id="nxp_" + sha256_hex(f"{cycle_id}|defer")[:26].upper(),
+            parent_cycle_id=cycle_id,
+            parent_hypothesis_id=None,
+            mechanism_id=mechanism_id,
+            hypothesis_delta={"mechanism": mechanism_id, "reason": _CHECK_FAILURE},
+            rationale=lesson.statement,
+            lesson_ids=(lesson.id,),
+            proposed_by=CIO,
+            created_at=now,
+        )
+        self.stores.documents.put(lesson, recorded_by=CIO.value)
+        self.stores.documents.put(proposal, recorded_by=CIO.value)
+        state["defer_reason"] = _CHECK_FAILURE
+        state["lesson_ids"] = [lesson.id]
+        state["next_proposal_id"] = proposal.id
+        self.fsm.transition(
+            RESEARCH_CYCLE, cycle_id, "DEFERRED", CIO.value, "hypothesis_checks_exhausted"
+        )
+        self.stores.checkpoints.save(cycle_id, WORKFLOW, "DEFERRED", state, "deferred")
+        self.stores.audit.record(
+            CIO.value,
+            "cycle.hypothesis_deferred",
+            cycle_id,
+            {"proposal_id": proposal.id, "lesson_id": lesson.id},
+        )
 
     def _from_hypothesis_generated(self, cycle_id: str, state: dict[str, Any]) -> bool:
         data = self._get(state["tasks"]["data"])
@@ -311,15 +436,23 @@ class CycleDriver:
         return True
 
     def _from_data_acquired(self, cycle_id: str, state: dict[str, Any]) -> bool:
-        impl = self._task(
-            cycle_id,
-            "strategy.implement",
-            {
-                "hypothesis_id": state["hypothesis_id"],
-                "dataset_version_id": state["dataset_version_id"],
-                "cycle_id": cycle_id,
-            },
-        )
+        strategy_inputs: dict[str, Any] = {
+            "hypothesis_id": state["hypothesis_id"],
+            "dataset_version_id": state["dataset_version_id"],
+            "cycle_id": cycle_id,
+        }
+        strategy_mode = os.environ.get("ENIGMA_STRATEGY_MODE", "").strip().lower()
+        # A check-rejection fallback already registered a library mechanism.
+        # Do not send that package through LLM codegen unless the operator asked.
+        if (
+            not strategy_mode
+            and not state.get("hypothesis_recovery")
+            and os.environ.get("ENIGMA_HYPOTHESIS_MODE", "").strip().lower() == "llm"
+        ):
+            strategy_mode = "llm"
+        if strategy_mode == "llm":
+            strategy_inputs["strategy_mode"] = "llm"
+        impl = self._task(cycle_id, "strategy.implement", strategy_inputs)
         state["tasks"]["strategy"] = impl.id
         if (failed := self._failed(impl)) is not None:
             self.abort(cycle_id, f"strategy task failed: {failed.error}")
@@ -408,7 +541,7 @@ class CycleDriver:
 
     def _from_validation_decided(self, cycle_id: str, state: dict[str, Any]) -> bool:
         if state.get("validation_overall") == "PASS":
-            self._task(
+            risk = self._task(
                 cycle_id,
                 "risk.review",
                 {
@@ -416,6 +549,36 @@ class CycleDriver:
                     "summary_id": state["validation_summary_id"],
                 },
             )
+            state["tasks"]["risk"] = risk.id
+            if (failed := self._failed(risk)) is not None:
+                self.abort(cycle_id, f"risk review failed: {failed.error}")
+                return True
+            if not self._done(risk):
+                self._save(cycle_id, state)
+                return False
+            state["risk_review_id"] = risk.outputs.get("review_id")
+            state["risk_decision"] = risk.outputs.get("decision")
+            # Optional paper open: operator pre-files HumanRiskAcknowledge and sets its id.
+            ack_id = os.environ.get("ENIGMA_PAPER_ACK_ID", "").strip()
+            if state.get("risk_decision") == "clearance" and ack_id:
+                paper = self._task(
+                    cycle_id,
+                    "execution.paper",
+                    {
+                        "package_id": state["candidate_package_id"],
+                        "risk_review_id": state["risk_review_id"],
+                        "acknowledge_id": ack_id,
+                        "notional_usd": float(os.environ.get("ENIGMA_PAPER_NOTIONAL_USD", "10000")),
+                    },
+                )
+                state["tasks"]["paper"] = paper.id
+                if (failed := self._failed(paper)) is not None:
+                    self.abort(cycle_id, f"paper session failed: {failed.error}")
+                    return True
+                if not self._done(paper):
+                    self._save(cycle_id, state)
+                    return False
+                state["paper_session_id"] = paper.outputs.get("session_id")
         meta = self._task(
             cycle_id,
             "meta.reflect_cycle",

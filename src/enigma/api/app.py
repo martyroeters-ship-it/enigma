@@ -61,6 +61,10 @@ def create_app(settings: Settings | None = None, stores: Stores | None = None) -
     def strategies(request: Request) -> HTMLResponse:
         return page(request, "strategies.html", s=rm.strategies())
 
+    @app.get("/execution", response_class=HTMLResponse)
+    def execution(request: Request) -> HTMLResponse:
+        return page(request, "execution.html", e=rm.execution())
+
     @app.get("/learning", response_class=HTMLResponse)
     def learning(request: Request) -> HTMLResponse:
         return page(request, "learning.html", lr=rm.learning())
@@ -68,6 +72,10 @@ def create_app(settings: Settings | None = None, stores: Stores | None = None) -
     @app.get("/messages", response_class=HTMLResponse)
     def messages(request: Request) -> HTMLResponse:
         return page(request, "messages.html", messages=rm.messages())
+
+    @app.get("/models", response_class=HTMLResponse)
+    def models(request: Request) -> HTMLResponse:
+        return page(request, "models.html", m=rm.model_usage())
 
     @app.get("/audit", response_class=HTMLResponse)
     def audit(request: Request) -> HTMLResponse:
@@ -100,6 +108,10 @@ def create_app(settings: Settings | None = None, stores: Stores | None = None) -
     def api_strategies() -> dict[str, Any]:
         return rm.strategies()
 
+    @app.get("/api/execution")
+    def api_execution() -> dict[str, Any]:
+        return rm.execution()
+
     @app.get("/api/learning")
     def api_learning() -> dict[str, Any]:
         return rm.learning()
@@ -111,6 +123,10 @@ def create_app(settings: Settings | None = None, stores: Stores | None = None) -
     @app.get("/api/costs")
     def api_costs() -> dict[str, Any]:
         return rm.costs()
+
+    @app.get("/api/models")
+    def api_models() -> dict[str, Any]:
+        return rm.model_usage()
 
     @app.get("/api/audit")
     def api_audit() -> list[dict[str, Any]]:

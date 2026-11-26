@@ -15,7 +15,13 @@ from enigma.core.clock import Clock
 from enigma.core.errors import PermissionDeniedError
 from enigma.core.hashing import sha256_hex
 from enigma.schemas.common import Actor, AgentRole
-from enigma.schemas.governance import Reflection, ReflectionOutcome, Task
+from enigma.schemas.governance import (
+    ExecutionMode,
+    ModelProvenance,
+    Reflection,
+    ReflectionOutcome,
+    Task,
+)
 from enigma.schemas.messages import MessageType
 from enigma.store.documents import PlaneView
 from enigma.store.queue import TaskQueue
@@ -31,6 +37,9 @@ class DecisionRecord:
     reasoning_summary: str
     input_refs: tuple[str, ...] = ()
     output_refs: tuple[str, ...] = ()
+    execution_mode: ExecutionMode = ExecutionMode.DETERMINISTIC
+    fallback_reason: str | None = None
+    model_calls: tuple[ModelProvenance, ...] = ()
 
 
 @dataclass(frozen=True)

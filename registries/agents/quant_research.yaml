@@ -2,7 +2,7 @@
 role: quant_research
 number: 6
 name: Quantitative Research Agent
-version: 1.0.0
+version: 1.1.0
 mission: Form falsifiable, mechanism-first hypotheses from evidence, prior lessons and data, with pre-registered
   parameters and trial budgets.
 plane: research
@@ -23,6 +23,7 @@ tools:
 - knowledge.index
 - data.load_research
 - llm.structured
+- quant.hypothesis_generate
 authority:
 - register hypotheses (L1)
 - define search spaces and trial budgets
@@ -46,9 +47,9 @@ kpis:
 budget:
   max_usd: 0.5
   max_tokens: 200000
-  max_http_requests: 0
-  max_wall_seconds: 900
+  max_http_requests: 40
+  max_wall_seconds: 1800
   max_cpu_seconds: 600
 model_route: quant_research
 instructions: State mechanism, prediction, formal statement and falsification criteria. Consult prior
-  lessons and failures first.
+  lessons and failures first. Local Ollama calls consume the HTTP budget.

@@ -19,6 +19,8 @@ from enigma.core.errors import BudgetExceededError, ProviderUnavailableError
 from enigma.core.hashing import sha256_hex, sha256_of
 from enigma.learning.lessons import CycleEvidence, derive_lessons, propose_next
 from enigma.learning.review import review_institution
+from enigma.research.bridge import hypothesis_from_proposal
+from enigma.research.context import build_research_context
 from enigma.research.hypothesis import build_hypothesis, score_mechanisms
 from enigma.research.mechanisms import MECHANISMS
 from enigma.research.microstructure import METHOD as MICRO_METHOD
@@ -26,8 +28,14 @@ from enigma.research.microstructure import analyze_panel, findings
 from enigma.research.trials import trial_plan
 from enigma.schemas.common import AgentRole
 from enigma.schemas.cycle import MarketAnalysis, NextExperimentProposal
-from enigma.schemas.governance import Reflection, ReflectionOutcome
+from enigma.schemas.governance import ExecutionMode, Reflection, ReflectionOutcome
 from enigma.schemas.knowledge import EvidenceItem, FailureCondition, Lesson
+from enigma.schemas.quant import (
+    DatasetInfo,
+    GenerationResult,
+    HypothesisProposal,
+    StrategyGenerationRecord,
+)
 from enigma.schemas.research import (
     DatasetVersion,
     Experiment,
@@ -161,6 +169,14 @@ class QuantResearchAgent(Agent):
 
     def execute(self, ctx: AgentContext) -> TaskOutcome:
         i = ctx.task.inputs
+        if i.get("recovery") == "alternate":
+            return self._execute_recovery(ctx)
+        if i.get("hypothesis_mode") == "llm":
+            return self._execute_llm(ctx)
+        return self._execute_deterministic(ctx)
+
+    def _execute_deterministic(self, ctx: AgentContext) -> TaskOutcome:
+        i = ctx.task.inputs
         objective = ctx.view.require(ResearchObjective, i["objective_id"])
         evidence = [e for e in (ctx.view.get(EvidenceItem, x) for x in i["evidence_ids"]) if e]
         prior = ctx.tools.call(
@@ -204,6 +220,7 @@ class QuantResearchAgent(Agent):
                 + f". Consulted {len(lessons)} lessons and {len(failures)} failure records.",
                 input_refs=(objective.id, analysis.id, *chosen.supporting_evidence[:10]),
                 output_refs=(hypothesis.id,),
+                execution_mode=ExecutionMode.DETERMINISTIC,
             )
         ]
         hypothesis = self._critique(ctx, hypothesis, decisions)
@@ -216,9 +233,214 @@ class QuantResearchAgent(Agent):
                 "mechanism_id": chosen.mechanism_id,
                 "trial_budget": hypothesis.trial_budget,
                 "scores": {s.mechanism_id: round(s.total, 4) for s in scores},
+                "execution_mode": ExecutionMode.DETERMINISTIC,
             },
             decisions=decisions,
             what_worked=f"{len(chosen.supporting_evidence)} supporting evidence items",
+        )
+
+    def _execute_llm(self, ctx: AgentContext) -> TaskOutcome:
+        """LLM primary path. Never falls back to mechanism templates on failure."""
+        i = ctx.task.inputs
+        objective = ctx.view.require(ResearchObjective, i["objective_id"])
+        evidence = [e for e in (ctx.view.get(EvidenceItem, x) for x in i["evidence_ids"]) if e]
+        prior = ctx.tools.call(
+            "knowledge.retrieve", query=objective.statement, topics=list(MECHANISMS)
+        )
+        lessons = [x for x in (ctx.view.get(Lesson, lid) for lid in prior["lesson_ids"]) if x]
+        failures = [
+            x for x in (ctx.view.get(FailureCondition, f) for f in prior["failure_ids"]) if x
+        ]
+        dataset = ctx.view.require(DatasetVersion, i["dataset_version_id"])
+        priors = list(ctx.view.list(Hypothesis))
+        context = build_research_context(
+            objective=objective,
+            research_cutoff=dataset.time_end,
+            datasets=(
+                DatasetInfo(
+                    dataset_version_id=dataset.id,
+                    name=dataset.name,
+                    frequency=dataset.frequency,
+                    bar_hours=1.0,
+                    symbols=tuple(inst.symbol for inst in dataset.instruments),
+                    columns=tuple(dataset.columns),
+                    coverage_start=dataset.time_start,
+                    coverage_end=dataset.time_end,
+                    rows=dataset.row_count,
+                ),
+            ),
+            evidence=evidence,
+            lessons=lessons,
+            failures=failures,
+            prior_hypotheses=priors,
+            cost_model_version="cm-binance-usdm-v1",
+        )
+        try:
+            raw = ctx.tools.call(
+                "quant.hypothesis_generate",
+                context=context.model_dump(mode="json"),
+                task_id=ctx.task.id,
+                budget=ctx.budget,
+            )
+        except (ProviderUnavailableError, BudgetExceededError, KeyError) as exc:
+            raise ProviderUnavailableError(
+                f"LLM hypothesis generation unavailable (no silent template fallback): {exc}"
+            ) from exc
+        generation = GenerationResult.model_validate(raw)
+        # Persist even on failure so operators can inspect rejected drafts.
+        ctx.view.put(generation)
+        if not generation.ok:
+            if generation.failure_reason == "no_proposal_survived_checks":
+                return self._checks_rejected(generation)
+            raise RuntimeError(
+                generation.failure_reason or "LLM hypothesis generation produced no survivors"
+            )
+        proposal: HypothesisProposal = generation.proposals[0]
+        hypothesis = hypothesis_from_proposal(
+            proposal,
+            objective_id=objective.id,
+            instruments=objective.instruments,
+            generation=generation,
+            dataset_version_ids=(dataset.id,),
+            lesson_ids=tuple(les.id for les in lessons),
+            created_by=self.role,
+            created_at=ctx.clock.now(),
+            cycle_id=i["cycle_id"],
+        )
+        decisions = [
+            DecisionRecord(
+                "hypothesis_selection",
+                proposal.id,
+                "llm_hypothesis_generator",
+                f"LLM generation {generation.id} via {generation.prompt_ref}; "
+                f"consulted {len(lessons)} lessons, {len(evidence)} evidence items.",
+                input_refs=(objective.id, dataset.id, *proposal.supporting_evidence_ids[:10]),
+                output_refs=(hypothesis.id,),
+                execution_mode=ExecutionMode.LLM,
+            )
+        ]
+        ctx.view.put(hypothesis)
+        ctx.tools.call("knowledge.index", doc=hypothesis)
+        return TaskOutcome(
+            outputs={
+                "hypothesis_id": hypothesis.id,
+                "family_id": hypothesis.family_id,
+                "mechanism_id": proposal.domain,
+                "trial_budget": hypothesis.trial_budget,
+                "generation_id": generation.id,
+                "execution_mode": ExecutionMode.LLM,
+                "prompt_ref": generation.prompt_ref,
+            },
+            decisions=decisions,
+            what_worked=f"LLM proposal '{proposal.title}' passed programmatic checks",
+        )
+
+    def _checks_rejected(self, generation: GenerationResult) -> TaskOutcome:
+        domains: list[str] = []
+        for draft in generation.rejected:
+            raw = draft.draft.get("domain") or draft.draft.get("mechanism_id")
+            if isinstance(raw, str) and raw:
+                domains.append(raw)
+        return TaskOutcome(
+            outputs={
+                "hypothesis_id": None,
+                "failure_reason": "no_proposal_survived_checks",
+                "generation_id": generation.id,
+                "rejected_domains": domains,
+                "execution_mode": ExecutionMode.LLM,
+            },
+            decisions=[
+                DecisionRecord(
+                    "hypothesis_selection",
+                    "none",
+                    "no_proposal_survived_checks",
+                    f"Generation {generation.id} is kept. No proposal survived checks.",
+                    output_refs=(generation.id,),
+                    execution_mode=ExecutionMode.LLM,
+                )
+            ],
+            what_failed="no_proposal_survived_checks",
+        )
+
+    def _execute_recovery(self, ctx: AgentContext) -> TaskOutcome:
+        """One alternate direction after LLM checks reject every draft.
+
+        Recorded as a deterministic fallback, not as model reasoning. The rejected
+        generation stays in the document store.
+        """
+        i = ctx.task.inputs
+        excluded = {str(item) for item in i.get("excluded_mechanisms") or []}
+        objective = ctx.view.require(ResearchObjective, i["objective_id"])
+        evidence = [e for e in (ctx.view.get(EvidenceItem, x) for x in i["evidence_ids"]) if e]
+        prior = ctx.tools.call(
+            "knowledge.retrieve", query=objective.statement, topics=list(MECHANISMS)
+        )
+        lessons = [x for x in (ctx.view.get(Lesson, lid) for lid in prior["lesson_ids"]) if x]
+        failures = [
+            x for x in (ctx.view.get(FailureCondition, f) for f in prior["failure_ids"]) if x
+        ]
+        tested = Counter(h.family_id.removeprefix("fam_") for h in ctx.view.list(Hypothesis))
+        analysis = ctx.view.require(MarketAnalysis, i["analysis_id"])
+        scores = score_mechanisms(evidence, analysis, lessons, failures, dict(tested))
+        ranked = sorted(scores, key=lambda s: (tested.get(s.mechanism_id, 0), s.mechanism_id))
+        chosen = next((s for s in ranked if s.mechanism_id not in excluded), None)
+        if chosen is None:
+            return TaskOutcome(
+                outputs={
+                    "hypothesis_id": None,
+                    "failure_reason": "no_proposal_survived_checks",
+                    "generation_id": i.get("rejected_generation_id"),
+                    "execution_mode": ExecutionMode.DETERMINISTIC_FALLBACK,
+                },
+                what_failed="no registered mechanism left after check rejection",
+            )
+        hypothesis = build_hypothesis(
+            objective,
+            MECHANISMS[chosen.mechanism_id],
+            chosen,
+            objective.instruments,
+            cycle_id=i["cycle_id"],
+            now=ctx.clock.now(),
+            dataset_version_ids=(i["dataset_version_id"],),
+            lesson_ids=tuple(les.id for les in lessons),
+        )
+        hypothesis = hypothesis.model_copy(
+            update={
+                "uncertainty_notes": (
+                    hypothesis.uncertainty_notes
+                    + " | Deterministic fallback after no_proposal_survived_checks."
+                    " The rejected LLM generation is retained."
+                )
+            }
+        )
+        ctx.view.put(hypothesis)
+        ctx.tools.call("knowledge.index", doc=hypothesis)
+        generation_id = str(i.get("rejected_generation_id") or "")
+        return TaskOutcome(
+            outputs={
+                "hypothesis_id": hypothesis.id,
+                "family_id": hypothesis.family_id,
+                "mechanism_id": chosen.mechanism_id,
+                "trial_budget": hypothesis.trial_budget,
+                "generation_id": generation_id or None,
+                "execution_mode": ExecutionMode.DETERMINISTIC_FALLBACK,
+                "recovery": "alternate",
+            },
+            decisions=[
+                DecisionRecord(
+                    "hypothesis_selection",
+                    chosen.mechanism_id,
+                    "no_proposal_survived_checks",
+                    "LLM drafts failed programmatic checks. One library mechanism was "
+                    f"registered instead: {chosen.mechanism_id}.",
+                    input_refs=tuple(ref for ref in (objective.id, generation_id) if ref),
+                    output_refs=(hypothesis.id,),
+                    execution_mode=ExecutionMode.DETERMINISTIC_FALLBACK,
+                    fallback_reason="no_proposal_survived_checks",
+                )
+            ],
+            what_worked=f"fallback mechanism {chosen.mechanism_id}",
+            what_failed="no_proposal_survived_checks",
         )
 
     def _critique(
@@ -257,8 +479,75 @@ class StrategyEngineeringAgent(Agent):
     def execute(self, ctx: AgentContext) -> TaskOutcome:
         i = ctx.task.inputs
         hyp = ctx.view.require(Hypothesis, i["hypothesis_id"])
+        mech_id = hyp.family_id.removeprefix("fam_")
+        use_llm = i.get("strategy_mode") == "llm" or mech_id not in MECHANISMS
+        if use_llm:
+            return self._execute_llm_codegen(ctx)
+        return self._execute_template(ctx)
+
+    def _execute_llm_codegen(self, ctx: AgentContext) -> TaskOutcome:
+        """LLM codegen path. Never falls back to mechanism templates on failure."""
+        i = ctx.task.inputs
+        hyp = ctx.view.require(Hypothesis, i["hypothesis_id"])
+        dataset = ctx.view.require(DatasetVersion, i["dataset_version_id"])
+        try:
+            raw = ctx.tools.call(
+                "strategy.codegen",
+                hypothesis_id=hyp.id,
+                dataset_version_id=dataset.id,
+                task_id=ctx.task.id,
+                budget=ctx.budget,
+            )
+        except (ProviderUnavailableError, BudgetExceededError, KeyError) as exc:
+            raise ProviderUnavailableError(
+                f"LLM strategy codegen unavailable (no silent template fallback): {exc}"
+            ) from exc
+        if not raw.get("ok"):
+            raise RuntimeError(raw.get("failure_reason") or "strategy codegen failed")
+        if isinstance(raw.get("record"), dict):
+            ctx.view.put(StrategyGenerationRecord.model_validate(raw["record"]))
+        base = ctx.view.require(StrategyPackage, raw["package_id"])
+        return self._run_trials(
+            ctx,
+            hyp,
+            dataset,
+            source_code=base.source_code,
+            entrypoint=base.entrypoint,
+            required_columns=tuple(base.required_columns),
+            name_prefix="llm",
+            execution_mode=ExecutionMode.LLM,
+            generation_id=raw.get("generation_id"),
+        )
+
+    def _execute_template(self, ctx: AgentContext) -> TaskOutcome:
+        i = ctx.task.inputs
+        hyp = ctx.view.require(Hypothesis, i["hypothesis_id"])
         dataset = ctx.view.require(DatasetVersion, i["dataset_version_id"])
         mech = MECHANISMS[hyp.family_id.removeprefix("fam_")]
+        return self._run_trials(
+            ctx,
+            hyp,
+            dataset,
+            source_code=mech.source_template,
+            entrypoint=mech.entrypoint,
+            required_columns=mech.features,
+            name_prefix=mech.id,
+            execution_mode=ExecutionMode.DETERMINISTIC,
+        )
+
+    def _run_trials(
+        self,
+        ctx: AgentContext,
+        hyp: Hypothesis,
+        dataset: DatasetVersion,
+        *,
+        source_code: str,
+        entrypoint: str,
+        required_columns: tuple[str, ...],
+        name_prefix: str,
+        execution_mode: ExecutionMode,
+        generation_id: str | None = None,
+    ) -> TaskOutcome:
         plan = trial_plan(hyp)
         experiments: list[Experiment] = []
         packages: list[str] = []
@@ -274,12 +563,12 @@ class StrategyEngineeringAgent(Agent):
                 continue
             package: StrategyPackage = ctx.tools.call(
                 "strategy.build",
-                source_code=mech.source_template,
-                entrypoint=mech.entrypoint,
+                source_code=source_code,
+                entrypoint=entrypoint,
                 params=params,
                 hypothesis_id=hyp.id,
-                name=f"{mech.id}-{index}",
-                required_columns=mech.features,
+                name=f"{name_prefix}-{index}",
+                required_columns=required_columns,
                 cost_model_version=hyp.cost_model_version,
             )
             ctx.view.put(package)
@@ -324,10 +613,18 @@ class StrategyEngineeringAgent(Agent):
             ctx.view.put(exp)
             try:
                 first = ctx.tools.call(
-                    "backtest.run", package_id=package.id, dataset_version_id=dataset.id, seed=0
+                    "backtest.run",
+                    package_id=package.id,
+                    dataset_version_id=dataset.id,
+                    seed=0,
+                    budget=ctx.budget,
                 )
                 twin = ctx.tools.call(
-                    "backtest.run", package_id=package.id, dataset_version_id=dataset.id, seed=0
+                    "backtest.run",
+                    package_id=package.id,
+                    dataset_version_id=dataset.id,
+                    seed=0,
+                    budget=ctx.budget,
                 )
             except Exception as exc:  # sandbox violations and runtime errors are trial results
                 exp = exp.model_copy(
@@ -394,17 +691,21 @@ class StrategyEngineeringAgent(Agent):
         reproducible = bool(succeeded) and all(
             e.metrics.get("twin_reproducible") == 1.0 for e in succeeded
         )
+        outputs: dict[str, Any] = {
+            "experiment_ids": [e.id for e in experiments],
+            "package_ids": packages,
+            "candidate_package_id": candidate.strategy_package_id if candidate else None,
+            "candidate_experiment_id": candidate.id if candidate else None,
+            "result_hashes": [e.result_hash for e in succeeded],
+            "reproducible": reproducible,
+            "trial_errors": [e.error for e in experiments if e.error][:3],
+            "net_sharpe_by_experiment": table,
+            "execution_mode": execution_mode,
+        }
+        if generation_id:
+            outputs["generation_id"] = generation_id
         return TaskOutcome(
-            outputs={
-                "experiment_ids": [e.id for e in experiments],
-                "package_ids": packages,
-                "candidate_package_id": candidate.strategy_package_id if candidate else None,
-                "candidate_experiment_id": candidate.id if candidate else None,
-                "result_hashes": [e.result_hash for e in succeeded],
-                "reproducible": reproducible,
-                "trial_errors": [e.error for e in experiments if e.error][:3],
-                "net_sharpe_by_experiment": table,
-            },
+            outputs=outputs,
             decisions=[
                 DecisionRecord(
                     "candidate_selection",
@@ -415,6 +716,7 @@ class StrategyEngineeringAgent(Agent):
                     "Selection on the research window is accounted for by the trial ledger.",
                     input_refs=(hyp.id, dataset.id),
                     output_refs=tuple(e.id for e in experiments),
+                    execution_mode=execution_mode,
                 )
             ],
             metrics={"trials": float(len(experiments)), "succeeded": float(len(succeeded))},
@@ -469,6 +771,33 @@ class RiskManagementAgent(Agent):
                     str(review["decision"]),
                     ",".join(review["reason_codes"]),
                     f"Deterministic limit checks: {review['checks']}.",
+                )
+            ],
+        )
+
+
+class ExecutionMonitoringAgent(Agent):
+    role = AgentRole.EXECUTION_MONITORING
+
+    def execute(self, ctx: AgentContext) -> TaskOutcome:
+        i = ctx.task.inputs
+        result: dict[str, Any] = ctx.tools.call(
+            "execution.paper",
+            package_id=i["package_id"],
+            risk_review_id=i["risk_review_id"],
+            acknowledge_id=i["acknowledge_id"],
+            notional_usd=float(i.get("notional_usd", 10_000.0)),
+        )
+        return TaskOutcome(
+            outputs=result,
+            decisions=[
+                DecisionRecord(
+                    "paper_session",
+                    str(result["session_id"]),
+                    "risk_clearance_and_human_ack",
+                    f"Opened paper session status={result['status']} "
+                    f"equity={result['equity_usd']}.",
+                    output_refs=(str(result["session_id"]),),
                 )
             ],
         )
@@ -590,5 +919,6 @@ ALL_ROLE_AGENTS: tuple[type[Agent], ...] = (
     StrategyEngineeringAgent,
     IndependentValidationAgent,
     RiskManagementAgent,
+    ExecutionMonitoringAgent,
     MetaLearningAgent,
 )

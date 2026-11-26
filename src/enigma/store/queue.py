@@ -176,6 +176,15 @@ class TaskQueue:
         params.append(limit)
         return [Task.model_validate_json(r["body"]) for r in self.db.query(sql, params)]
 
+    def outcomes_by_role(self) -> dict[str, dict[str, int]]:
+        rows = self.db.query(
+            "SELECT assigned_to, status, COUNT(*) AS n FROM task_queue GROUP BY assigned_to, status"
+        )
+        out: dict[str, dict[str, int]] = {}
+        for r in rows:
+            out.setdefault(r["assigned_to"], {})[r["status"]] = int(r["n"])
+        return out
+
     def counts(self) -> dict[str, int]:
         rows = self.db.query("SELECT status, COUNT(*) AS n FROM task_queue GROUP BY status")
         return {r["status"]: int(r["n"]) for r in rows}

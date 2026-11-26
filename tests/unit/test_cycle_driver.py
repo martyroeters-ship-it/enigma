@@ -11,7 +11,7 @@ from cycle_rig import Rig
 
 from enigma.fsm import RESEARCH_CYCLE, RESEARCH_CYCLE_STEPS, STRATEGY_LIFECYCLE
 from enigma.schemas.common import AgentRole, SystemActor
-from enigma.schemas.cycle import NextExperimentProposal
+from enigma.schemas.cycle import NextExperimentProposal, ProposalState
 from enigma.schemas.governance import ImprovementProposal, Reflection, TaskStatus
 from enigma.schemas.knowledge import Lesson
 from enigma.schemas.research import Experiment
@@ -64,6 +64,28 @@ def test_passing_candidate_gets_risk_veto_while_paper_disabled(tmp_path: Path) -
     assert len(risk) == 1 and risk[0].status is TaskStatus.SUCCEEDED
     assert risk[0].outputs["decision"] == "veto"
     assert "paper_trading_disabled" in risk[0].outputs["reason_codes"]
+    _, state, _ = rig.stores.checkpoints.load(cycle)  # type: ignore[misc]
+    assert state["risk_decision"] == "veto"
+    assert state["risk_review_id"] == risk[0].outputs["review_id"]
+    assert "paper" not in state.get("tasks", {})
+    assert "execution.paper" not in {t.kind for t in rig.stores.queue.list(correlation_id=cycle)}
+
+
+def test_paper_ack_env_does_not_bypass_risk_veto(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ENIGMA_PAPER_ACK_ID", "hrack_should_not_open")
+    monkeypatch.setenv("ENIGMA_PAPER_NOTIONAL_USD", "10000")
+    rig = Rig(tmp_path / "c.sqlite3", fail_gate=None)
+    cycle = rig.submit()
+    assert rig.run(cycle) == "COMPLETED"
+    _, state, _ = rig.stores.checkpoints.load(cycle)  # type: ignore[misc]
+    assert state["risk_decision"] == "veto"
+    assert "paper" not in state.get("tasks", {})
+    assert state.get("paper_session_id") is None
+    kinds = {t.kind for t in rig.stores.queue.list(correlation_id=cycle)}
+    assert "risk.review" in kinds
+    assert "execution.paper" not in kinds
 
 
 def test_resume_after_process_restart_does_not_repeat_work(tmp_path: Path) -> None:
@@ -116,3 +138,6 @@ def test_cycle_aborts_without_external_research(tmp_path: Path, missing: str) ->
     rig2 = Rig(tmp_path / "c.sqlite3", fakes=rig.fakes)
     cycle = rig2.submit()
     assert rig2.run(cycle) == "ABORTED"
+    proposals = rig2.stores.documents.list(NextExperimentProposal, where={"parent_cycle_id": cycle})
+    assert len(proposals) == 1
+    assert proposals[0].state is ProposalState.PROPOSED
