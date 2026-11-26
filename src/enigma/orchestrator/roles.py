@@ -21,6 +21,7 @@ from enigma.learning.lessons import CycleEvidence, derive_lessons, propose_next
 from enigma.learning.review import review_institution
 from enigma.research.bridge import hypothesis_from_proposal
 from enigma.research.context import build_research_context
+from enigma.research.hybrid import compare_funding_to_returns
 from enigma.research.hypothesis import build_hypothesis, score_mechanisms
 from enigma.research.mechanisms import MECHANISMS
 from enigma.research.microstructure import METHOD as MICRO_METHOD
@@ -127,6 +128,28 @@ class DataEngineeringAgent(Agent):
         )
 
 
+def _hybrid_on_frame(frame: Any) -> dict[str, Any]:
+    columns = set(getattr(frame, "columns", ()))
+    if not {"funding_rate", "perp_close", "symbol", "available_at"} <= columns:
+        return {"hybrid_status": "unavailable"}
+    symbols = sorted(frame.get_column("symbol").unique().to_list())
+    if not symbols:
+        return {"hybrid_status": "unavailable"}
+    part = frame.filter(frame.get_column("symbol") == symbols[0]).sort("available_at")
+    comparison = compare_funding_to_returns(
+        part.get_column("funding_rate").to_list(),
+        part.get_column("perp_close").to_list(),
+    )
+    if comparison is None:
+        return {"hybrid_status": "insufficient_rows", "hybrid_symbol": symbols[0]}
+    return {
+        "hybrid_status": "compared",
+        "hybrid_symbol": symbols[0],
+        "hybrid_winner": comparison.winner,
+        "hybrid_loser_failure": comparison.loser_failure,
+    }
+
+
 class MarketMicrostructureAgent(Agent):
     role = AgentRole.MARKET_MICROSTRUCTURE
 
@@ -144,8 +167,13 @@ class MarketMicrostructureAgent(Agent):
             created_at=ctx.clock.now(),
         )
         ctx.view.put(analysis)
+        hybrid = _hybrid_on_frame(frame)
         return TaskOutcome(
-            outputs={"analysis_id": analysis.id, "findings": list(analysis.findings)},
+            outputs={
+                "analysis_id": analysis.id,
+                "findings": list(analysis.findings),
+                **hybrid,
+            },
             decisions=[
                 DecisionRecord(
                     "market_analysis",

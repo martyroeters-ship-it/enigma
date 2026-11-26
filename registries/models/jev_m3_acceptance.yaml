@@ -1,0 +1,9 @@
+# Frozen before scoring. Adoption requires a measured TypeSafe run on this label set.
+# A missing TYPESAFE_API_KEY is a reject, not a pass.
+version: jev-m3-acceptance-1
+label_set_id: enigma-decision-v1
+label_set_size_min: 200
+label_set_hash: sha256:8343dd519c442c78197b928b72f29d104eb18834101b13afe72c6ab5a22b8ac3
+max_p50_latency_ms: 500
+max_cost_ratio_vs_frontier: 0.5
+min_reliability: 0.99

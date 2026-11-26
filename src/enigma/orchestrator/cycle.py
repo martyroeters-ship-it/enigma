@@ -128,6 +128,34 @@ class CycleDriver:
         )
         return cycle_id
 
+    def open_objective(self, objective_id: str) -> str:
+        """Open a cycle for an objective the scan already stored. Does not place an order."""
+        objective = self.stores.documents.require(ResearchObjective, objective_id)
+        now = self.clock.now()
+        symbols = sorted({item.symbol for item in objective.instruments})
+        research_end = self.research_cutoff(symbols)
+        if research_end <= self.policy.research_start:
+            raise ValueError("research cutoff precedes the research data start")
+        cycle_id = new_id("cyc")
+        self.fsm.create(RESEARCH_CYCLE, cycle_id, CIO.value, reason_code="objective_received")
+        state = {
+            "objective_id": objective.id,
+            "proposal_id": None,
+            "symbols": symbols,
+            "research_start": self.policy.research_start.isoformat(),
+            "research_end": research_end.isoformat(),
+            "started_at": now.isoformat(),
+            "origin": "market_scan",
+        }
+        self.stores.checkpoints.save(cycle_id, WORKFLOW, "OBJECTIVE_RECEIVED", state, "running")
+        self.stores.audit.record(
+            CIO.value,
+            "cycle.objective_received",
+            cycle_id,
+            {"objective_id": objective.id, "origin": "market_scan"},
+        )
+        return cycle_id
+
     # ---------------------------------------------------------------- helpers
     def _state(self, cycle_id: str) -> dict[str, Any]:
         loaded = self.stores.checkpoints.load(cycle_id)
