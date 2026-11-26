@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable
-from pathlib import Path
 
 import httpx
 import pytest
@@ -12,7 +11,7 @@ import respx
 
 from enigma.core.clock import FrozenClock
 from enigma.core.errors import ProviderUnavailableError
-from enigma.intelligence.http import HttpClient
+from enigma.intelligence.http import HttpClient, RawStore
 from enigma.intelligence.providers import (
     ArxivProvider,
     BraveSearchProvider,
@@ -34,8 +33,8 @@ ClientFactory = Callable[..., HttpClient]
 TOPIC = "perpetual futures funding rate"
 
 
-def _assert_provenance(hit_raw_uri: str, content_hash: str) -> None:
-    data = Path(hit_raw_uri).read_bytes()
+def _assert_provenance(store: RawStore, hit_raw_uri: str, content_hash: str) -> None:
+    data = store.read(hit_raw_uri)
     assert content_hash == "sha256:" + hashlib.sha256(data).hexdigest()
 
 
@@ -48,7 +47,8 @@ def test_arxiv_query_builder() -> None:
 def test_arxiv(
     recorded_api: respx.MockRouter, make_client: ClientFactory, clock: FrozenClock
 ) -> None:
-    hits = ArxivProvider(make_client(), clock).search(TOPIC, 4, None)
+    client = make_client()
+    hits = ArxivProvider(client, clock).search(TOPIC, 4, None)
     assert [h.external_ids["arxiv"] for h in hits] == [
         "2506.08573",
         "2212.06888",
@@ -61,10 +61,10 @@ def test_arxiv(
     assert first.pdf_url == "https://arxiv.org/pdf/2506.08573v1"
     assert first.authors[0].name == "Jaehyun Kim"
     assert first.abstract is not None and "funding rates" in first.abstract
-    raw = Path(first.raw_uri).read_bytes()
+    raw = client.raw_store.read(first.raw_uri)
     assert raw.startswith(b"<entry>") and b"2506.08573" in raw
-    _assert_provenance(first.raw_uri, first.content_hash)
-    _assert_provenance(first.response_uri, first.response_hash)
+    _assert_provenance(client.raw_store, first.raw_uri, first.content_hash)
+    _assert_provenance(client.raw_store, first.response_uri, first.response_hash)
     assert first.retrieved_at.year == 2026
     assert ArxivProvider(make_client(), clock).search(TOPIC, 4, "de") == []
 
@@ -72,7 +72,8 @@ def test_arxiv(
 def test_openalex(
     recorded_api: respx.MockRouter, make_client: ClientFactory, clock: FrozenClock
 ) -> None:
-    hits = OpenAlexProvider(make_client(), clock).search(TOPIC, 4, None)
+    client = make_client()
+    hits = OpenAlexProvider(client, clock).search(TOPIC, 4, None)
     assert len(hits) == 4
     by_id = {h.external_ids["openalex"]: h for h in hits}
     designing = by_id["W4417257235"]
@@ -81,7 +82,7 @@ def test_openalex(
     assert designing.abstract and designing.abstract.startswith("In cryptocurrency markets")
     assert by_id["W7223101883"].referenced_ids[:3] == ("W2120832833", "W4312405632", "W4407361822")
     assert all(a.external_ids.get("openalex", "").startswith("A") for a in designing.authors)
-    _assert_provenance(designing.raw_uri, designing.content_hash)
+    _assert_provenance(client.raw_store, designing.raw_uri, designing.content_hash)
     request = recorded_api.calls.last.request
     assert request.url.params["mailto"]
     assert request.url.params["search"] == TOPIC
@@ -108,12 +109,13 @@ def test_openalex_traversal_calls(
 def test_crossref(
     recorded_api: respx.MockRouter, make_client: ClientFactory, clock: FrozenClock
 ) -> None:
-    hits = CrossrefProvider(make_client(), clock).search(TOPIC, 4, None)
+    client = make_client()
+    hits = CrossrefProvider(client, clock).search(TOPIC, 4, None)
     assert {h.external_ids["doi"] for h in hits} >= {"10.2139/ssrn.7690458"}
     for h in hits:
         if h.abstract:
             assert "<jats" not in h.abstract and not h.abstract.lower().startswith("abstract")
-        _assert_provenance(h.raw_uri, h.content_hash)
+        _assert_provenance(client.raw_store, h.raw_uri, h.content_hash)
 
 
 def test_github(

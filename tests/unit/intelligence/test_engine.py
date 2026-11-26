@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
-from pathlib import Path
 
 import pytest
 import respx
@@ -73,20 +72,23 @@ def _by_title(sources: Sequence[Source], prefix: str) -> Source:
     return next(s for s in sources if s.title.startswith(prefix))
 
 
-def test_multi_provider_sources_with_provenance(result: ResearchResult) -> None:
+def test_multi_provider_sources_with_provenance(
+    recorded_api: respx.MockRouter, make_client: ClientFactory, clock: FrozenClock
+) -> None:
+    client = make_client()
+    result = _engine(client, clock).run(_query())
+    assert result.http_requests_used == len(recorded_api.calls)
     kept = {name: stats.sources_kept for name, stats in result.provider_stats.items()}
     assert all(kept[p] >= 1 for p in ("arxiv", "openalex", "crossref", "github", "wikipedia"))
     assert not result.budget_exhausted
-    for s in (*result.sources, *result.duplicate_sources):
-        assert s.raw_uri and s.raw_response_uri
-        assert (
-            s.content_hash == "sha256:" + hashlib.sha256(Path(s.raw_uri).read_bytes()).hexdigest()
-        )
-        assert s.raw_response_hash == (
-            "sha256:" + hashlib.sha256(Path(s.raw_response_uri).read_bytes()).hexdigest()
-        )
-        assert s.url.startswith("https://")
-        assert s.retrieved_by is AgentRole.INTELLIGENCE
+    for source in (*result.sources, *result.duplicate_sources):
+        assert source.raw_uri and source.raw_response_uri
+        raw = client.raw_store.read(source.raw_uri)
+        response = client.raw_store.read(source.raw_response_uri)
+        assert source.content_hash == "sha256:" + hashlib.sha256(raw).hexdigest()
+        assert source.raw_response_hash == "sha256:" + hashlib.sha256(response).hexdigest()
+        assert source.url.startswith("https://")
+        assert source.retrieved_by is AgentRole.INTELLIGENCE
     assert len({s.id for s in result.sources}) == len(result.sources)
 
 

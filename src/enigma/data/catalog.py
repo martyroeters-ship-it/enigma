@@ -24,6 +24,7 @@ import polars as pl
 from enigma.core.clock import Clock, SystemClock
 from enigma.core.errors import IntegrityError, ProviderUnavailableError
 from enigma.core.ids import new_id
+from enigma.core.paths import StorageRoots, bind_uri, dataset_parquet, resolve_uri, within
 from enigma.data.binance import BinanceArchiveClient
 from enigma.data.hashing import HASH_SCHEME, frame_content_hash
 from enigma.data.instruments import PERP_VENUE, binance_perp, binance_spot
@@ -87,8 +88,10 @@ class DataCatalog:
         okx_cross_check: bool = False,
         costs: CostLedger | None = None,
         clock: Clock | None = None,
+        roots: StorageRoots | None = None,
     ) -> None:
         self.root = root
+        self.roots = roots
         self.documents = documents
         self.plane = plane
         self.actor = actor
@@ -99,7 +102,17 @@ class DataCatalog:
         self.costs = costs
 
     def _version_dir(self, name: str, content_hash: str) -> Path:
-        return self.root / "datasets" / name / content_hash.removeprefix("sha256:")[:16]
+        return dataset_parquet(self.root, name, content_hash).parent
+
+    def locate(self, dataset: DatasetVersion) -> Path | None:
+        """Parquet for this version under this catalog. Never follows a path into another plane."""
+        addressed = dataset_parquet(self.root, dataset.name, dataset.content_hash)
+        if addressed.is_file():
+            return addressed
+        found = resolve_uri(dataset.uri, self.roots, catalog_root=self.root)
+        if found is not None and within(found, self.root):
+            return found
+        return None
 
     def acquire_perp_funding_panel(
         self,
@@ -209,7 +222,7 @@ class DataCatalog:
             time_end=panel["available_at"].max(),
             row_count=panel.height,
             content_hash=content_hash,
-            uri=data_path.resolve().as_posix(),
+            uri=bind_uri(data_path, self.roots, catalog_root=self.root),
             pit_certified=is_pit_certified(quality),
             quality=quality,
             provenance=provenance,
@@ -230,7 +243,7 @@ class DataCatalog:
             found = self.documents.list(
                 DatasetVersion, where={"name": name, "content_hash": content_hash}, limit=1
             )
-            if found and Path(found[0].uri).exists():
+            if found and self.locate(found[0]) is not None:
                 self.load(found[0])
                 return found[0]
         manifest = self._version_dir(name, content_hash) / "dataset.json"
@@ -281,9 +294,9 @@ class DataCatalog:
 
     def load(self, dataset: DatasetVersion) -> pl.DataFrame:
         """Read the version's Parquet and verify its content hash before returning it."""
-        path = Path(dataset.uri)
-        if not path.exists():
-            raise IntegrityError(f"dataset {dataset.id} data missing at {path}")
+        path = self.locate(dataset)
+        if path is None:
+            raise IntegrityError(f"dataset {dataset.id} data missing at {dataset.uri}")
         frame = pl.read_parquet(path)
         if tuple(frame.columns) != tuple(dataset.columns) or frame.height != dataset.row_count:
             raise IntegrityError(f"dataset {dataset.id} shape does not match its manifest")

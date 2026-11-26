@@ -70,8 +70,9 @@ def test_acquire_publishes_verified_version(
     assert ds.pit_certified and ds.quality.passed
     assert "survived" in ds.survivorship_notes
 
-    path = Path(ds.uri)
+    path = catalog.locate(ds)
     assert path == tmp_path / "datasets" / ds.name / ds.content_hash[7:23] / "data.parquet"
+    assert ds.uri == "inst:catalog/" + path.relative_to(tmp_path).as_posix()
     assert (path.parent / "dataset.json").exists()
 
     archives = ds.provenance["archives"]
@@ -123,7 +124,9 @@ def test_same_data_same_hash_in_independent_roots(
     assert a.content_hash == b.content_hash
     assert a.id != b.id
     assert b.plane == "validation"
-    assert Path(b.uri).is_relative_to(tmp_path / "validation")
+    located = validation.locate(b)
+    assert located is not None and located.is_relative_to(tmp_path / "validation")
+    assert b.uri.startswith("inst:catalog/datasets/")
     assert not (tmp_path / "validation" / "raw").samefile(tmp_path / "research" / "raw")
 
 
@@ -142,14 +145,14 @@ def test_tampered_parquet_fails_integrity(
 ) -> None:
     catalog = _catalog(tmp_path, server, clock, None, Plane.RESEARCH)
     ds = catalog.acquire_perp_funding_panel(SYMBOLS, START, END)
-    frame = pl.read_parquet(ds.uri)
+    frame = pl.read_parquet(catalog.locate(ds))
     tampered = frame.with_columns(
         pl.when(pl.int_range(pl.len()) == 0)
         .then(pl.col("funding_rate") * 10)
         .otherwise(pl.col("funding_rate"))
         .alias("funding_rate")
     )
-    tampered.write_parquet(ds.uri)
+    tampered.write_parquet(catalog.locate(ds))
     with pytest.raises(IntegrityError, match="content hash"):
         catalog.load(ds)
     with pytest.raises(IntegrityError):
@@ -164,7 +167,8 @@ def test_truncated_parquet_fails_integrity(
 ) -> None:
     catalog = _catalog(tmp_path, server, clock, None, Plane.RESEARCH)
     ds = catalog.acquire_perp_funding_panel(SYMBOLS, START, END)
-    pl.read_parquet(ds.uri).head(5).write_parquet(ds.uri)
+    data_path = catalog.locate(ds)
+    pl.read_parquet(data_path).head(5).write_parquet(data_path)
     with pytest.raises(IntegrityError, match="shape"):
         catalog.load(ds)
 

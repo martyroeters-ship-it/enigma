@@ -3,9 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from cycle_rig import Rig
+from cycle_rig import Rig, isolated_settings
 
-from enigma.core.config import Settings
 from enigma.orchestrator.daemon import Daemon, Schedule
 from enigma.orchestrator.institution import Institution
 from enigma.orchestrator.market_scan import run_market_scan
@@ -77,7 +76,7 @@ def test_scan_opens_one_objective_per_window(tmp_path: Path) -> None:
 
 def _inst(rig: Rig) -> Institution:
     return Institution(
-        Settings.from_env(),
+        isolated_settings(rig.stores.db.path or Path("enigma-test.sqlite3")),
         rig.stores,
         rig.bus,
         rig.fsm,

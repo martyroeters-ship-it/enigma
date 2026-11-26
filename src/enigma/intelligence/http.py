@@ -32,6 +32,7 @@ from enigma.core.errors import (
 )
 from enigma.core.hashing import sha256_hex
 from enigma.core.logging import get_logger
+from enigma.core.paths import StorageRoots, bind_uri, join_uri, within
 
 log = get_logger(__name__)
 
@@ -96,8 +97,9 @@ class HttpBudget:
 class RawStore:
     """Content-addressed raw byte store: `<root>/<hh>/<sha256hex><suffix>`."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, roots: StorageRoots | None = None) -> None:
         self.root = root
+        self.roots = roots
 
     def put(self, data: bytes, suffix: str = "") -> tuple[str, str]:
         """Store bytes; returns `(uri, "sha256:<hex>")`. Idempotent for identical content."""
@@ -108,13 +110,17 @@ class RawStore:
             tmp = path.with_suffix(path.suffix + ".tmp")
             tmp.write_bytes(data)
             tmp.replace(path)
-        return path.as_posix(), "sha256:" + digest
+        return bind_uri(path, self.roots, catalog_root=self.root), "sha256:" + digest
+
+    def resolve(self, uri: str) -> Path:
+        """Path inside this store. Missing files still return a path under the root."""
+        candidate = join_uri(uri, self.roots, catalog_root=self.root)
+        if candidate is None or not within(candidate, self.root):
+            raise PermissionDeniedError(f"{uri} is outside the raw store")
+        return candidate
 
     def read(self, uri: str) -> bytes:
-        path = Path(uri)
-        if self.root.resolve() not in path.resolve().parents:
-            raise PermissionDeniedError(f"{uri} is outside the raw store")
-        return path.read_bytes()
+        return self.resolve(uri).read_bytes()
 
 
 @dataclass(frozen=True)

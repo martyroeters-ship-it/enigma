@@ -57,7 +57,9 @@ class DatasetVersion(StrictModel):
     time_end: UtcDatetime
     row_count: int = Field(ge=0)
     content_hash: Sha256
-    uri: NonEmptyStr
+    uri: NonEmptyStr = Field(
+        description="Portable location inst:<anchor>/<path> under an institutional root"
+    )
     pit_certified: bool
     quality: DataQualityReport
     provenance: dict[str, Any] = Field(description="Endpoints, download URLs, retrieval time")
@@ -170,7 +172,9 @@ class Experiment(StrictModel):
     status: ExperimentStatus = ExperimentStatus.REGISTERED
     metrics: dict[str, float] = Field(default_factory=dict)
     result_hash: Sha256 | None = None
-    artifact_uri: str | None = None
+    artifact_uri: str | None = Field(
+        default=None, description="Portable inst:<anchor>/<path> of the backtest artifact"
+    )
     error: str | None = None
     created_by: Actor
     started_at: UtcDatetime | None = None

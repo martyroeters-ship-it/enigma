@@ -73,12 +73,13 @@ The container is read-only except for one temporary directory, drops every capab
 
 Ollama, the dashboard, and this process stay on the Mac. Strategy code still uses the Docker sandbox. Paid API spend stays $0. Paper and live trading stay off. Do not set `ENIGMA_SANDBOX_ALLOW_WEAK`.
 
-Leave `~/enigma-run` in place.
+Leave `~/enigma-run` in place. If that directory was copied from another machine, migrate it once before `up`. The command rewrites stored absolute paths to `inst:<anchor>/<path>` under the current home. It checks content hashes before it writes, appends a new document version instead of editing history, and does not move a sealed holdout. Running it again changes nothing.
 
 ```bash
 cd ~/enigma
 git fetch origin
-git checkout cursor/continuous-research-2746
+git checkout cursor/portable-home-2746
+git pull
 uv sync
 
 export ENIGMA_HOME="$HOME/enigma-run"
@@ -86,9 +87,15 @@ export ENIGMA_MAX_DAILY_API_SPEND_USD=0
 unset ENIGMA_PAPER_ACK_ID
 unset ENIGMA_SANDBOX_ALLOW_WEAK
 
+uv run enigma home migrate
+uv run enigma home preflight
 uv run enigma sandbox status
 uv run enigma up
 ```
+
+`home migrate` exits 0 when every file that it can see matches its recorded hash. Paths it cannot find are left unchanged; `up` quarantines the objectives that need those files and continues with the rest. It does not run validation for a quarantined objective and it does not substitute another file. A hash mismatch exits 1 and writes nothing. Do not point the old Linux path at the Mac with a symlink, and do not edit `dataset.json` by hand.
+
+After this change is on `main`, the same commands work from `git checkout main`.
 
 `sandbox status` must print `docker` before `up`. `up` prints `continuous research: on` and does not return until you stop it. Stop it with Ctrl-C. In a second terminal:
 

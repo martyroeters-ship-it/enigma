@@ -103,6 +103,10 @@ class CycleDriver:
                 + ", ".join(self.active_cycles())
                 + "); refusing a second writer"
             )
+        symbols = sorted({i.symbol for i in instruments})
+        research_end = self.research_cutoff(symbols)
+        if research_end <= self.policy.research_start:
+            raise ValueError("research cutoff precedes the research data start")
         now = self.clock.now()
         objective = ResearchObjective(
             id=new_id("obj"),
@@ -114,10 +118,6 @@ class CycleDriver:
             created_at=now,
         )
         self.stores.documents.put(objective, recorded_by=CIO.value)
-        symbols = sorted({i.symbol for i in instruments})
-        research_end = self.research_cutoff(symbols)
-        if research_end <= self.policy.research_start:
-            raise ValueError("research cutoff precedes the research data start")
         cycle_id = new_id("cyc")
         self.fsm.create(RESEARCH_CYCLE, cycle_id, CIO.value, reason_code="objective_received")
         state = {
@@ -145,11 +145,11 @@ class CycleDriver:
         if self.active_cycles():
             raise ValueError("a research cycle is already running; refusing a second writer")
         objective = self.stores.documents.require(ResearchObjective, objective_id)
-        now = self.clock.now()
         symbols = sorted({item.symbol for item in objective.instruments})
         research_end = self.research_cutoff(symbols)
         if research_end <= self.policy.research_start:
             raise ValueError("research cutoff precedes the research data start")
+        now = self.clock.now()
         cycle_id = new_id("cyc")
         self.fsm.create(RESEARCH_CYCLE, cycle_id, CIO.value, reason_code="objective_received")
         state = {
