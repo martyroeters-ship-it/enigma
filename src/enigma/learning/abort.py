@@ -102,6 +102,19 @@ _RULES: tuple[tuple[re.Pattern[str], AbortClass, str, str, tuple[str, ...]], ...
         ("model", "json"),
     ),
     (
+        re.compile(
+            r"strategy isolation is not available|network namespace isolation unavailable|"
+            r"SandboxUnavailableError|docker sandbox",
+            re.I,
+        ),
+        AbortClass.INFRASTRUCTURE,
+        "sandbox_isolation_unavailable",
+        "On macOS install Docker Desktop and run `uv run enigma sandbox prepare`. "
+        "Strategy code runs in a Linux container with network disabled. Do not set "
+        "ENIGMA_SANDBOX_ALLOW_WEAK, and do not retry code generation while isolation is down.",
+        ("sandbox", "isolation"),
+    ),
+    (
         re.compile(r"codegen_failed_after_repairs", re.I),
         AbortClass.INFRASTRUCTURE,
         "strategy_codegen_failed",
