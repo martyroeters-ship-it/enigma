@@ -40,6 +40,7 @@ from enigma.schemas.knowledge import (
     MarketMechanism,
     Source,
 )
+from enigma.schemas.learning import ForecastRecord, Postmortem
 from enigma.schemas.quant import (
     DatasetAcquisitionRequest,
     GenerationResult,
@@ -115,6 +116,8 @@ for _model, _kind, _plane in (
     (PaperFill, "paper_fill", Plane.EXECUTION),
     (DegradationAlert, "degradation_alert", Plane.EXECUTION),
     (HumanRiskAcknowledge, "human_risk_acknowledge", Plane.CONTROL),
+    (ForecastRecord, "forecast", Plane.CONTROL),
+    (Postmortem, "postmortem", Plane.CONTROL),
 ):
     register_kind(_model, _kind, _plane)
 

@@ -3,6 +3,18 @@
 {% block content %}
 <h1>Learning &amp; self-improvement</h1>
 
+<h2>Forecast calibration</h2>
+{% if lr.calibration.n %}
+<p>Resolved forecasts: {{ lr.calibration.n }}. Brier {{ lr.calibration.brier }}.
+Log loss {{ lr.calibration.log_loss }}. ECE {{ lr.calibration.ece }}.
+Overconfident: {{ lr.calibration.overconfident }}.</p>
+<table><tr><th>Bin</th><th>Count</th><th>Mean probability</th><th>Outcome rate</th></tr>
+{% for b in lr.calibration.bins %}
+<tr><td>{{ b.lower }}–{{ b.upper }}</td><td>{{ b.count }}</td><td>{{ b.mean_probability }}</td><td>{{ b.outcome_rate }}</td></tr>
+{% endfor %}
+</table>
+{% else %}<div class="empty">No resolved forecasts.</div>{% endif %}
+
 <h2>Lessons</h2>
 {% if lr.lessons %}
 <table><tr><th>Lesson</th><th>Topics</th><th>Claim</th><th>Derived from</th></tr>
@@ -19,8 +31,8 @@
 
 <h2>Improvement proposals (approval-gated)</h2>
 {% if lr.improvements %}
-<table><tr><th>Id</th><th>Target</th><th>Change</th><th>Rationale</th><th>State</th></tr>
-{% for p in lr.improvements %}<tr><td class="mono">{{ p.id }}</td><td>{{ p.target }}</td><td>{{ p.change_summary }}</td><td>{{ p.rationale }}</td><td>{{ p.fsm_state or p.status }}</td></tr>{% endfor %}
+<table><tr><th>Id</th><th>Target</th><th>Change</th><th>Rationale</th><th>Postmortems</th><th>State</th></tr>
+{% for p in lr.improvements %}<tr><td class="mono">{{ p.id }}</td><td>{{ p.target }}</td><td>{{ p.change_summary }}</td><td>{{ p.rationale }}</td><td class="mono">{{ p.postmortem_ids|join(', ') }}</td><td>{{ p.fsm_state or p.status }}</td></tr>{% endfor %}
 </table>
 {% else %}<div class="empty">No improvement proposals.</div>{% endif %}
 
