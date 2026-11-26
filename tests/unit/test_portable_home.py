@@ -151,9 +151,7 @@ def test_relocated_home_loads_and_opens_the_next_objective(tmp_path: Path) -> No
     raw_path.write_bytes(b'{"title":"moved"}')
     artifact_hash = "sha256:" + "ab" * 32
     artifact = (
-        settings.research_dir
-        / "backtests"
-        / f"{artifact_hash.removeprefix('sha256:')[:32]}.npz"
+        settings.research_dir / "backtests" / f"{artifact_hash.removeprefix('sha256:')[:32]}.npz"
     )
     artifact.parent.mkdir(parents=True)
     np.savez_compressed(artifact, equity=np.array([1.0, 1.01]))

@@ -159,11 +159,7 @@ def recover_absolute(uri: str, roots: Iterable[Path]) -> Path | None:
     start = 1 if parts[0] == "/" else 0
     for index in range(start, len(parts)):
         suffix = Path(*parts[index:])
-        hits = {
-            (root / suffix).resolve()
-            for root in search
-            if (root / suffix).is_file()
-        }
+        hits = {(root / suffix).resolve() for root in search if (root / suffix).is_file()}
         if hits:
             found[len(parts) - index] = hits
     if not found:

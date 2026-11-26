@@ -57,6 +57,8 @@ def isolated_settings(db: Path) -> Settings:
         db_path=db,
         registries_dir=ROOT / "registries",
     )
+
+
 COST = CostModel(
     version="cm-test",
     taker_fee_bps=5,

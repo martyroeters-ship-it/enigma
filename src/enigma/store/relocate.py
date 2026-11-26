@@ -246,12 +246,8 @@ def _scan_manifests(scan: _Scan, settings: Settings) -> None:
                 )
 
 
-def _scan_documents(
-    scan: _Scan, documents: DocumentStore, label: str, catalog: Path
-) -> None:
-    rows = documents.db.query(
-        "SELECT kind, id, body FROM documents_latest ORDER BY kind, id"
-    )
+def _scan_documents(scan: _Scan, documents: DocumentStore, label: str, catalog: Path) -> None:
+    rows = documents.db.query("SELECT kind, id, body FROM documents_latest ORDER BY kind, id")
     for row in rows:
         body = json.loads(row["body"])
         if not isinstance(body, dict):
@@ -559,4 +555,3 @@ def _raw_dirs(roots: StorageRoots) -> tuple[Path, ...]:
         roots.validation / "raw",
         roots.home / "raw",
     )
-
