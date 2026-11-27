@@ -5,8 +5,10 @@
 # its credentials are missing, its local server is unreachable, it lacks a required capability,
 # or its estimated cost breaks the budget / per-call ceiling / daily ceiling.
 #
-# Local models come last so paid models are preferred when configured and affordable, and
-# Enigma keeps working (at lower quality) with no API keys if a local server is running.
+# Role defaults still end on a local model so a missing key can fall back.
+# Routine extraction and scientific case construction are pinned to local models
+# with a zero per-call ceiling. Hosted frontier models are comparison candidates
+# only: enigma bench prices them and does not call them.
 # Validation-plane roles get commentary routes only: gate outcomes are never model-decided.
 
 defaults:
@@ -22,13 +24,15 @@ roles:
       max_output_tokens: 4096
     tasks:
       intelligence.extract_hypothesis:
-        candidates: [claude-sonnet, gpt-5-mini, gemini-flash, local-qwen]
-        reasoning_effort: low
-        max_cost_per_call_usd: 0.15
-      intelligence.summarize_source:
-        candidates: [gemini-flash, claude-haiku, gpt-4.1-mini, local-qwen]
+        candidates: [local-qwen, local-qwen-3b]
         reasoning_effort: none
-        max_cost_per_call_usd: 0.05
+        max_cost_per_call_usd: 0.0
+        max_output_tokens: 2048
+      intelligence.summarize_source:
+        candidates: [local-qwen, local-qwen-3b]
+        reasoning_effort: none
+        max_cost_per_call_usd: 0.0
+        max_output_tokens: 2048
 
   quant_research:
     default:
@@ -38,9 +42,15 @@ roles:
       max_output_tokens: 4096
     tasks:
       quant_research.design_experiment:
+        candidates: [local-qwen, local-qwen-3b]
         reasoning_effort: high
-        max_cost_per_call_usd: 1.00
-        max_output_tokens: 8192
+        max_cost_per_call_usd: 0.0
+        max_output_tokens: 4096
+      research.scientific_case:
+        candidates: [local-qwen, local-qwen-3b]
+        reasoning_effort: high
+        max_cost_per_call_usd: 0.0
+        max_output_tokens: 4096
       # Local structured output. 7B first; 3B only if that tag is installed and
       # the 7B body does not parse. Paid models are not candidates for this task.
       quant.hypothesis:

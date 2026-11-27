@@ -12,7 +12,7 @@ from typing import Any
 
 from enigma.research.mechanisms import MECHANISMS
 from enigma.schemas.governance import ImprovementProposal, ProposalStatus
-from enigma.schemas.inquiry import ScientificCase
+from enigma.schemas.inquiry import AcquisitionRecord, ScientificCase
 from enigma.schemas.knowledge import MarketMechanism
 from enigma.schemas.learning import Postmortem
 from enigma.store import Stores
@@ -54,6 +54,7 @@ def build_report(stores: Stores) -> dict[str, Any]:
     mechanisms = stores.documents.list(MarketMechanism, limit=500)
     novel = [item.name for item in mechanisms if item.name not in seed_names]
     cases = stores.documents.list(ScientificCase, limit=500)
+    acquisitions = stores.documents.list(AcquisitionRecord, limit=500)
     proposals = stores.documents.list(ImprovementProposal, limit=500)
     adopted = [item for item in proposals if item.status is ProposalStatus.ROLLED_OUT]
     rejected = [item for item in proposals if item.status is ProposalStatus.REJECTED]
@@ -76,6 +77,8 @@ def build_report(stores: Stores) -> dict[str, Any]:
         "backlog_exhausted_seed_directions": _exhausted(stores),
         "novel_mechanisms": novel,
         "scientific_cases": len(cases),
+        "acquisitions_registered": sum(1 for item in acquisitions if item.status == "registered"),
+        "acquisitions_unmet": sum(1 for item in acquisitions if item.status == "unmet"),
         "design_counts": dict(designs),
         "frequency_counts": dict(frequencies),
         "improvements_adopted": len(adopted),
@@ -99,6 +102,8 @@ def render_text(report: dict[str, Any]) -> str:
         f"Inference USD: {report['inference']['usd']}",
         f"Novel mechanisms: {', '.join(report['novel_mechanisms']) or 'none'}",
         f"Scientific cases: {report['scientific_cases']}",
+        f"Acquisitions registered: {report['acquisitions_registered']}",
+        f"Acquisitions unmet: {report['acquisitions_unmet']}",
         f"Improvements adopted: {report['improvements_adopted']}",
         f"Improvements rejected: {report['improvements_rejected']}",
         f"Designs: {report['design_counts']}",

@@ -338,7 +338,7 @@ def accept(
     home: Annotated[Path, typer.Option(help="Isolated copy of an institutional home.")],
 ) -> None:
     """Assess an isolated home. Refuses the active ENIGMA_HOME. Does not trade or spend."""
-    from enigma.orchestrator.acceptance import assess, refuse_active_home  # noqa: PLC0415
+    from enigma.orchestrator.acceptance import assess, refuse_active_home, verdict  # noqa: PLC0415
 
     active = os.environ.get("ENIGMA_HOME", "").strip()
     refusal = refuse_active_home(home, Path(active) if active else None)
@@ -351,10 +351,32 @@ def accept(
         body = assess(stores)
     finally:
         stores.db.close()
-    fails = [item for item in body["criteria"] if item["status"] == "fail"]
+    decision = verdict(body["criteria"])
+    counts = decision["counts"]
+    typer.echo(f"{decision['label']}. {decision['note']}")
+    typer.echo(f"passed {counts['pass']}, failed {counts['fail']}, blocked {counts['blocked']}")
     for item in body["criteria"]:
         typer.echo(f"{item['n']}. {item['status']}: {item['name']} — {item['evidence']}")
-    if fails:
+    if decision["code"]:
+        raise typer.Exit(code=decision["code"])
+
+
+@app.command()
+def bench(
+    out: Annotated[
+        Path | None,
+        typer.Option(help="Optional path for the JSON result. Does not write the active home."),
+    ] = None,
+) -> None:
+    """Score installed local models on the frozen suite. Does not call a paid API."""
+    from enigma.research.reasoning_suite import run_frozen_suite  # noqa: PLC0415
+
+    result = run_frozen_suite(progress_path=out)
+    text = json.dumps(result, indent=2)
+    if out is not None:
+        out.write_text(text, encoding="utf-8")
+    typer.echo(text)
+    if result.get("paid_calls"):
         raise typer.Exit(code=2)
 
 

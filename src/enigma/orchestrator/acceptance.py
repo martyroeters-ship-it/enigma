@@ -54,12 +54,7 @@ def assess(stores: Stores, *, model_status: str | None = None) -> dict[str, Any]
     gates_ok = tuple(hourly.required_gates) == tuple(full.required_gates)
     model = model_status if model_status is not None else probe_local_model()
     criteria = [
-        _criterion(
-            1,
-            "original backlog exhausted",
-            "blocked",
-            "This store has no overnight history. The runner will not invent it.",
-        ),
+        _exhaustion(stores),
         _discovery(stores, model),
         _hypothesis(stores),
         _acquisition(stores),
@@ -80,8 +75,67 @@ def assess(stores: Stores, *, model_status: str | None = None) -> dict[str, Any]
     }
 
 
+def verdict(criteria: list[dict[str, Any]]) -> dict[str, Any]:
+    """Exit 0 only when every mandatory criterion passed.
+
+    Exit 2 means at least one criterion failed. Exit 3 means nothing failed
+    but a mandatory criterion is still blocked. Both are not acceptance.
+    """
+    counts = {"pass": 0, "fail": 0, "blocked": 0}
+    for item in criteria:
+        status = str(item.get("status") or "")
+        if status in counts:
+            counts[status] += 1
+        else:
+            counts["fail"] += 1
+    if counts["fail"]:
+        code = 2
+    elif counts["blocked"]:
+        code = 3
+    else:
+        code = 0
+    label = "ACCEPTED" if code == 0 else "NOT ACCEPTED"
+    return {
+        "code": code,
+        "label": label,
+        "counts": counts,
+        "note": (
+            "Exit 0 means every mandatory criterion passed. "
+            "A blocked mandatory criterion is not acceptance."
+        ),
+    }
+
+
 def _criterion(number: int, name: str, status: str, evidence: str) -> dict[str, Any]:
     return {"n": number, "name": name, "status": status, "evidence": evidence}
+
+
+def _exhaustion(stores: Stores) -> dict[str, Any]:
+    cycles = stores.checkpoints.list("research_cycle")
+    if not cycles:
+        return _criterion(
+            1,
+            "original backlog exhausted",
+            "blocked",
+            "No research cycles are in this store, so exhaustion cannot be observed.",
+        )
+    from enigma.orchestrator.backlog import research_agenda  # noqa: PLC0415
+
+    agenda = research_agenda(stores, inputs_budget=24)
+    viable = [item for item in agenda.ranked if item.viable]
+    if viable:
+        return _criterion(
+            1,
+            "original backlog exhausted",
+            "fail",
+            f"{len(viable)} seed directions are still viable.",
+        )
+    return _criterion(
+        1,
+        "original backlog exhausted",
+        "pass",
+        f"No viable seed direction remains among {len(agenda.ranked)} ranked.",
+    )
 
 
 def _discovery(stores: Stores, model: str) -> dict[str, Any]:

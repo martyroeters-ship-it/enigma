@@ -1,0 +1,369 @@
+{
+  "version": "reasoning-suite-v1",
+  "tasks": [
+    {
+      "id": "mech-funding-clock",
+      "facet": "economic_mechanism",
+      "prompt": "Why might a perp-spot basis trade still earn a different payoff from funding alone when funding is exchanged on a fixed clock?",
+      "evidence": [
+        {"id": "ev-fund-clock", "excerpt": "USD-M funding is exchanged at 00:00, 08:00 and 16:00 UTC."},
+        {"id": "ev-basis-mark", "excerpt": "The perp-spot basis is marked continuously, not only at the funding timestamp."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["funding_rate", "basis", "perp_close", "spot_close"]
+    },
+    {
+      "id": "mech-liquidation",
+      "facet": "economic_mechanism",
+      "prompt": "Who is forced to trade when a liquidation engine sells into a thin book, and why might the price overshoot?",
+      "evidence": [
+        {"id": "ev-liq-engine", "excerpt": "A liquidation engine submits reduce-only orders when margin is insufficient."},
+        {"id": "ev-insurance", "excerpt": "An insurance fund absorbs residual losses after the liquidated account is closed."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["perp_close", "perp_volume", "funding_rate"]
+    },
+    {
+      "id": "mech-weekend-depth",
+      "facet": "economic_mechanism",
+      "prompt": "Why might the perp mark move differently from the spot index over a weekend?",
+      "evidence": [
+        {"id": "ev-weekend-spot", "excerpt": "Spot order books are often thinner on Saturday and Sunday."},
+        {"id": "ev-perp-open", "excerpt": "Perpetual markets remain open through the weekend."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["basis", "perp_volume", "spot_close"]
+    },
+    {
+      "id": "mech-borrow",
+      "facet": "economic_mechanism",
+      "prompt": "A trader who shorts the perp and holds spot pays funding when the rate is positive. What other balance-sheet cost can remain?",
+      "evidence": [
+        {"id": "ev-short-spot", "excerpt": "Borrowing the spot coin to hedge a long perp accrues a borrow fee."},
+        {"id": "ev-funding-sign", "excerpt": "A positive funding rate is paid by longs to shorts."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["funding_rate", "spot_close", "perp_close"]
+    },
+    {
+      "id": "pred-product-sign",
+      "facet": "falsifiable_prediction",
+      "prompt": "State one falsifiable prediction about the next holding window. Name the observable and the explanation it would rule out.",
+      "evidence": [
+        {"id": "ev-fund-a", "excerpt": "Funding is a periodic cashflow between longs and shorts."},
+        {"id": "ev-basis-a", "excerpt": "The basis is the gap between the perpetual and the spot index."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["funding_rate", "basis", "perp_close"]
+    },
+    {
+      "id": "pred-after-liq",
+      "facet": "falsifiable_prediction",
+      "prompt": "Predict what happens to the next-bar return after a liquidation burst. Make it falsifiable.",
+      "evidence": [
+        {"id": "ev-burst", "excerpt": "Liquidation volume arrives in bursts rather than evenly through the day."},
+        {"id": "ev-book", "excerpt": "The visible book is thinner after a burst than before it."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["perp_close", "perp_volume"]
+    },
+    {
+      "id": "pred-weekend-basis",
+      "facet": "falsifiable_prediction",
+      "prompt": "Predict the weekend change in the basis relative to weekday bars. Name what would falsify it.",
+      "evidence": [
+        {"id": "ev-sat", "excerpt": "Saturday spot volume is lower than Wednesday spot volume in the public archives."},
+        {"id": "ev-mark-cont", "excerpt": "The perpetual mark updates on weekends."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["basis", "perp_volume"]
+    },
+    {
+      "id": "pred-funding-alone",
+      "facet": "falsifiable_prediction",
+      "prompt": "Funding alone is a candidate predictor. State a prediction that could show it is not sufficient.",
+      "evidence": [
+        {"id": "ev-only-fund", "excerpt": "Some research reports use only the funding print as a signal."},
+        {"id": "ev-two-series", "excerpt": "The basis and the funding print are not the same series."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["funding_rate", "basis"]
+    },
+    {
+      "id": "comp-reversal-momentum",
+      "facet": "competing_explanations",
+      "prompt": "Extreme funding could mean crowding that reverses, or demand that continues. Name both and a measurement that separates them.",
+      "evidence": [
+        {"id": "ev-extreme", "excerpt": "Funding occasionally prints far from its recent average."},
+        {"id": "ev-trend", "excerpt": "The perpetual price sometimes continues in the same direction after a high funding print."}
+      ],
+      "contradictory_ids": ["ev-trend"],
+      "allowed_observables": ["funding_rate", "perp_close"]
+    },
+    {
+      "id": "comp-cascade-news",
+      "facet": "competing_explanations",
+      "prompt": "A sharp perp drop can be forced liquidation or new information. How would you tell them apart?",
+      "evidence": [
+        {"id": "ev-drop", "excerpt": "Perp prices sometimes fall several percent within one bar."},
+        {"id": "ev-no-spot", "excerpt": "The spot index sometimes moves much less than the perp in that same bar."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["perp_close", "spot_close", "perp_volume"]
+    },
+    {
+      "id": "comp-calendar",
+      "facet": "competing_explanations",
+      "prompt": "A weekend price gap might be a calendar effect or just the funding timestamp falling inside the gap. Separate them.",
+      "evidence": [
+        {"id": "ev-gap", "excerpt": "Some daily bars that contain a weekend show a larger basis."},
+        {"id": "ev-clock-in-bar", "excerpt": "An eight-hour funding timestamp can fall inside a daily bar."}
+      ],
+      "contradictory_ids": ["ev-clock-in-bar"],
+      "allowed_observables": ["basis", "funding_rate"]
+    },
+    {
+      "id": "comp-inventory",
+      "facet": "competing_explanations",
+      "prompt": "A wide basis might be mispricing or the cost of holding inventory. State both.",
+      "evidence": [
+        {"id": "ev-wide", "excerpt": "The basis is sometimes several tenths of a percent."},
+        {"id": "ev-balance", "excerpt": "Holding the hedge uses balance-sheet capacity."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["basis", "funding_rate"]
+    },
+    {
+      "id": "exp-conditional-volume",
+      "facet": "experimental_design",
+      "prompt": "Design a conditional test: the funding signal is used only when volume is high. Name the computations.",
+      "evidence": [
+        {"id": "ev-vol-high", "excerpt": "Quote volume varies by more than an order of magnitude across bars."},
+        {"id": "ev-fund-var", "excerpt": "Funding also varies across bars."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["funding_rate", "perp_quote_volume", "perp_close"]
+    },
+    {
+      "id": "exp-regime-vol",
+      "facet": "experimental_design",
+      "prompt": "Design a regime split on realized variation of the perpetual price. The signal may differ by regime.",
+      "evidence": [
+        {"id": "ev-quiet", "excerpt": "Some weeks have small bar-to-bar price changes."},
+        {"id": "ev-loud", "excerpt": "Other weeks have large bar-to-bar price changes."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["perp_close", "funding_rate"]
+    },
+    {
+      "id": "exp-cross-section",
+      "facet": "experimental_design",
+      "prompt": "Two symbols have funding at the same timestamps. Design a cross-sectional rank rather than a single-symbol z-score.",
+      "evidence": [
+        {"id": "ev-btc", "excerpt": "BTCUSDT funding is published on the eight-hour clock."},
+        {"id": "ev-eth", "excerpt": "ETHUSDT funding is published on the same clock and is not a copy of BTCUSDT."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["funding_rate"]
+    },
+    {
+      "id": "exp-product",
+      "facet": "experimental_design",
+      "prompt": "Design a nonlinear combination of funding and basis. A single z-score of one series is not this design.",
+      "evidence": [
+        {"id": "ev-f", "excerpt": "Funding is a cashflow."},
+        {"id": "ev-b", "excerpt": "Basis is a price gap."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["funding_rate", "basis"]
+    },
+    {
+      "id": "stat-multiple",
+      "facet": "statistical_methodology",
+      "prompt": "Twenty-four directions were tried. Which error control belongs in the validation, and why is the best in-sample Sharpe not enough?",
+      "evidence": [
+        {"id": "ev-grid", "excerpt": "The seed grid is four mechanisms, two symbols, and three sampling frequencies."},
+        {"id": "ev-best", "excerpt": "The highest research-window Sharpe was selected after seeing the results."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["funding_rate", "perp_close"],
+      "methodology_groups": [["multiple", "deflated", "false discovery"], ["holdout", "in-sample", "selected"]]
+    },
+    {
+      "id": "stat-annualize",
+      "facet": "statistical_methodology",
+      "prompt": "A one-hour Sharpe and an eight-hour Sharpe were both multiplied by the same constant. What should the annualization use instead?",
+      "evidence": [
+        {"id": "ev-hour", "excerpt": "There are 24 one-hour bars in a day."},
+        {"id": "ev-eight", "excerpt": "There are three eight-hour bars in a day."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["perp_close"],
+      "methodology_groups": [["frequency", "period", "hour", "eight"], ["different", "not the same", "own"]]
+    },
+    {
+      "id": "stat-embargo",
+      "facet": "statistical_methodology",
+      "prompt": "The label uses the next three bars. How should the embargo between research and holdout relate to that holding period?",
+      "evidence": [
+        {"id": "ev-hold", "excerpt": "The strategy holds for three bars after the decision."},
+        {"id": "ev-split", "excerpt": "The holdout is the last portion of the same series."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["perp_close"],
+      "methodology_groups": [["purge", "cover", "span", "cross", "leak"], ["horizon", "holding period", "label"]]
+    },
+    {
+      "id": "stat-costs",
+      "facet": "statistical_methodology",
+      "prompt": "Net Sharpe is negative. Gross Sharpe is also negative. Which comparison separates a missing edge from an edge that costs destroyed?",
+      "evidence": [
+        {"id": "ev-net", "excerpt": "Net of fees, the research Sharpe was below zero."},
+        {"id": "ev-gross", "excerpt": "Before fees, the research Sharpe was also below zero."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["perp_close", "funding_rate"],
+      "methodology_groups": [["gross"], ["already", "before fee", "before fees", "not a cost", "not the cost", "absent"]]
+    },
+    {
+      "id": "data-open-interest",
+      "facet": "data_requirements",
+      "prompt": "The hypothesis needs open interest. The public kline and funding archive does not list it. What should the acquisition record say?",
+      "evidence": [
+        {"id": "ev-kline", "excerpt": "The public kline archive has open, high, low, close, and volume."},
+        {"id": "ev-no-oi", "excerpt": "That archive does not include open interest."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["open_interest", "perp_close", "funding_rate"],
+      "data_expect": {"observable": "open_interest", "status_any": ["unmet", "missing", "absent", "does not", "not in", "not include"]}
+    },
+    {
+      "id": "data-basis-columns",
+      "facet": "data_requirements",
+      "prompt": "Basis is perp close minus spot close. Which columns are required, and which substitute would be invalid?",
+      "evidence": [
+        {"id": "ev-perp", "excerpt": "Perpetual close is in the kline file."},
+        {"id": "ev-spot", "excerpt": "Spot close is a different file from the perpetual kline."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["perp_close", "spot_close", "basis"],
+      "data_expect": {"observables_all": ["perp_close", "spot_close"]}
+    },
+    {
+      "id": "data-funding-time",
+      "facet": "data_requirements",
+      "prompt": "A one-hour bar must not be charged an eight-hour funding print that did not settle inside that hour. Which timestamp decides that?",
+      "evidence": [
+        {"id": "ev-settle", "excerpt": "Funding events have their own settlement timestamps."},
+        {"id": "ev-bar", "excerpt": "A bar has an open time and a close time."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["funding_rate"],
+      "data_expect": {"text_groups": [["within the bar", "during the bar", "falls inside", "settlement time", "event time", "only if"]]}
+    },
+    {
+      "id": "data-liquidations",
+      "facet": "data_requirements",
+      "prompt": "The mechanism is about liquidations, but the downloaded panel has only klines and funding. What is the honest data status?",
+      "evidence": [
+        {"id": "ev-panel", "excerpt": "The acquired panel columns are prices, volume, basis, and funding."},
+        {"id": "ev-missing-liq", "excerpt": "Liquidation prints are not among those columns."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["perp_close", "funding_rate"],
+      "data_expect": {"status_any": ["unmet", "missing", "not among", "not in", "absent"]}
+    },
+    {
+      "id": "ground-two-sources",
+      "facet": "evidence_grounding",
+      "prompt": "Use only the supplied evidence. Cite both ids if you rely on them. Do not add a source.",
+      "evidence": [
+        {"id": "ev-src-1", "excerpt": "The funding schedule is published by the exchange."},
+        {"id": "ev-src-2", "excerpt": "The same schedule is visible in the public monthly archive."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["funding_rate"]
+    },
+    {
+      "id": "ground-contradiction",
+      "facet": "evidence_grounding",
+      "prompt": "One excerpt contradicts the claim that funding is paid every hour. Cite that excerpt as contradictory.",
+      "evidence": [
+        {"id": "ev-claim-hour", "excerpt": "A forum post says funding is paid every hour."},
+        {"id": "ev-eight", "excerpt": "The exchange document says funding is exchanged every eight hours."}
+      ],
+      "contradictory_ids": ["ev-claim-hour"],
+      "allowed_observables": ["funding_rate"]
+    },
+    {
+      "id": "ground-no-invent",
+      "facet": "evidence_grounding",
+      "prompt": "You were not given an open-interest study. Do not cite one. Use only the ids below.",
+      "evidence": [
+        {"id": "ev-only-a", "excerpt": "Funding history is in the public archive."},
+        {"id": "ev-only-b", "excerpt": "No open-interest field is in that archive."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["funding_rate", "open_interest"]
+    },
+    {
+      "id": "ground-interpretation",
+      "facet": "evidence_grounding",
+      "prompt": "Your own sentence is not a third source. Ground the claim in the two excerpts.",
+      "evidence": [
+        {"id": "ev-doc", "excerpt": "The documentation states the funding clock."},
+        {"id": "ev-archive", "excerpt": "The archive stores the historical funding rate."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["funding_rate"]
+    },
+    {
+      "id": "diag-g02",
+      "facet": "methodological_diagnosis",
+      "prompt": "A validation failed because the dataset time_end equalled the embargo start. The research rows did not enter the holdout. Is that evidence against the mechanism?",
+      "evidence": [
+        {"id": "ev-g02", "excerpt": "The gate compares the dataset end with the embargo start."},
+        {"id": "ev-equal", "excerpt": "The dataset end was exactly the embargo start, and no holdout row was read."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["perp_close"],
+      "diagnosis_groups": [["g02", "chronological", "embargo"], ["not evidence against", "not evidence", "method"]]
+    },
+    {
+      "id": "diag-gross",
+      "facet": "methodological_diagnosis",
+      "prompt": "Net Sharpe was negative and gross Sharpe was negative too. A note blamed trading costs. What was misdiagnosed?",
+      "evidence": [
+        {"id": "ev-both-neg", "excerpt": "Gross and net research Sharpe were both below zero."},
+        {"id": "ev-blame", "excerpt": "The written note said costs destroyed the edge."}
+      ],
+      "contradictory_ids": ["ev-blame"],
+      "allowed_observables": ["perp_close"],
+      "diagnosis_groups": [["gross"], ["cost", "costs"], ["absent", "no edge", "already negative", "before cost"]]
+    },
+    {
+      "id": "diag-lookahead",
+      "facet": "methodological_diagnosis",
+      "prompt": "The position at bar t is a function of the close of bar t, and the backtest return of bar t is also computed from that close. What error is that?",
+      "evidence": [
+        {"id": "ev-pos", "excerpt": "target_positions uses the close of the same bar it labels."},
+        {"id": "ev-ret", "excerpt": "The bar return ending at that close is attributed to the position."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["perp_close"],
+      "diagnosis_groups": [["lookahead", "look-ahead", "look ahead", "same bar", "same-bar"], ["causal", "future", "leak"]]
+    },
+    {
+      "id": "diag-sample",
+      "facet": "methodological_diagnosis",
+      "prompt": "A strategy was declared validated on a holdout that the protocol says must be at least ninety days. The file contained one month. What failed?",
+      "evidence": [
+        {"id": "ev-month", "excerpt": "The file spans one calendar month."},
+        {"id": "ev-rule", "excerpt": "The protocol requires a longer holdout than one month."}
+      ],
+      "contradictory_ids": [],
+      "allowed_observables": ["perp_close"],
+      "diagnosis_groups": [["too short", "insufficient", "not validated", "cannot validate", "shorter"], ["minimum", "required", "ninety"]]
+    }
+  ]
+}

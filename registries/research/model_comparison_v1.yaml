@@ -1,0 +1,33 @@
+# Controlled comparison. Nothing in this file is called by the bench.
+# Prices come from registries/models/pricing.yaml and are estimates.
+version: model-comparison-v1
+paid_calls: 0
+authorization: not granted
+assumed_tokens:
+  input: 1200
+  output: 600
+local_baseline:
+  - alias: local-qwen
+    tag: qwen2.5:7b-instruct
+    role: scientific baseline and routine fallback
+  - alias: local-qwen-3b
+    tag: qwen2.5:3b
+    role: smaller local baseline
+local_absent_until_installed:
+  - alias: local-qwen3
+    tag: qwen3:8b
+  - alias: local-gpt-oss
+    tag: gpt-oss:20b
+frontier_scientific:
+  - alias: claude-sonnet
+  - alias: gpt-5
+  - alias: gemini-pro
+  - alias: deepseek-reasoner
+routine_stays_local:
+  - alias: claude-haiku
+  - alias: gemini-flash
+  - alias: gpt-4.1-mini
+note: >
+  Run enigma bench to score whatever local tags are installed.
+  A hosted row stays not_called. Cost per scientifically acceptable case
+  stays undefined until that model is scored under an explicit authorization.
