@@ -24,6 +24,7 @@ from enigma.research.context import build_research_context
 from enigma.research.horizons import sampling_frequency
 from enigma.research.hybrid import compare_funding_to_returns
 from enigma.research.hypothesis import build_hypothesis, score_mechanisms
+from enigma.research.inquiry import case_for_objective, compiled_case_strategy, hypothesis_from_case
 from enigma.research.mechanisms import MECHANISMS, family_id_for_domain
 from enigma.research.microstructure import METHOD as MICRO_METHOD
 from enigma.research.microstructure import analyze_panel, findings
@@ -200,9 +201,53 @@ class QuantResearchAgent(Agent):
         i = ctx.task.inputs
         if i.get("recovery") == "alternate":
             return self._execute_recovery(ctx)
+        objective = ctx.view.get(ResearchObjective, str(i.get("objective_id") or ""))
+        if objective is not None:
+            case = case_for_objective(objective, ctx.view.get)
+            if case is not None:
+                return self._execute_case(ctx, objective, case)
         if i.get("hypothesis_mode") == "llm":
             return self._execute_llm(ctx)
         return self._execute_deterministic(ctx)
+
+    def _execute_case(
+        self, ctx: AgentContext, objective: ResearchObjective, case: Any
+    ) -> TaskOutcome:
+        """Test the registered case. Do not score the seed library and do not rewrite it."""
+        i = ctx.task.inputs
+        hypothesis = hypothesis_from_case(
+            case,
+            objective,
+            cycle_id=str(i["cycle_id"]),
+            dataset_version_id=str(i["dataset_version_id"]),
+            now=ctx.clock.now(),
+        )
+        decisions = [
+            DecisionRecord(
+                "hypothesis_selection",
+                case.id,
+                "registered_scientific_case",
+                "The hypothesis is the registered case. Its interpretation is not evidence. "
+                "The seed library was not scored.",
+                input_refs=(objective.id, *case.supporting_evidence_ids[:10]),
+                output_refs=(hypothesis.id,),
+                execution_mode=ExecutionMode.DETERMINISTIC,
+            )
+        ]
+        ctx.view.put(hypothesis)
+        ctx.tools.call("knowledge.index", doc=hypothesis)
+        return TaskOutcome(
+            outputs={
+                "hypothesis_id": hypothesis.id,
+                "family_id": hypothesis.family_id,
+                "mechanism_id": case.id,
+                "trial_budget": hypothesis.trial_budget,
+                "execution_mode": ExecutionMode.DETERMINISTIC,
+                "generation_method": hypothesis.generation_method,
+            },
+            decisions=decisions,
+            what_worked=f"registered case {case.id}",
+        )
 
     def _execute_deterministic(self, ctx: AgentContext) -> TaskOutcome:
         i = ctx.task.inputs
@@ -515,6 +560,21 @@ class StrategyEngineeringAgent(Agent):
     def execute(self, ctx: AgentContext) -> TaskOutcome:
         i = ctx.task.inputs
         hyp = ctx.view.require(Hypothesis, i["hypothesis_id"])
+        compiled = compiled_case_strategy(hyp, ctx.view.get)
+        if compiled is not None:
+            source, entrypoint, columns = compiled
+            dataset = ctx.view.require(DatasetVersion, i["dataset_version_id"])
+            return self._run_trials(
+                ctx,
+                hyp,
+                dataset,
+                source_code=source,
+                entrypoint=entrypoint,
+                required_columns=columns,
+                name_prefix="program",
+                execution_mode=ExecutionMode.DETERMINISTIC,
+                implementation="compiled_research_program",
+            )
         mech_id = _mechanism_id(hyp.family_id)
         # Explicit ENIGMA_STRATEGY_MODE=llm is the only path that code-generates a
         # registered mechanism. An LLM hypothesis that names a library mechanism

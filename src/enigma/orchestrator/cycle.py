@@ -30,6 +30,7 @@ from enigma.learning.abort import lessons_from_aborted_cycle
 from enigma.learning.postmortem import postmortem_for_abort, postmortem_for_validation
 from enigma.orchestrator.failures import record_execution_failure
 from enigma.research.horizons import sampling_frequency
+from enigma.research.inquiry import case_for_objective, registered_case_retrieval
 from enigma.research.mechanisms import MECHANISMS
 from enigma.schemas.common import AgentRole, ClaimLevel, Instrument
 from enigma.schemas.cycle import NextExperimentProposal
@@ -377,6 +378,19 @@ class CycleDriver:
     def _from_objective_received(self, cycle_id: str, state: dict[str, Any]) -> bool:
         research_inputs = self._research_inputs(state)
         intel = self._task(cycle_id, "intelligence.research", research_inputs)
+        objective = self.stores.documents.require(ResearchObjective, state["objective_id"])
+        case = case_for_objective(objective, self.stores.documents.get)
+        if case is not None and intel.status is TaskStatus.PENDING:
+            retrieved = registered_case_retrieval(case, self.stores.documents.get)
+            if retrieved is not None:
+                self.stores.queue.complete(intel.id, retrieved)
+                self.stores.audit.record(
+                    CIO.value,
+                    "cycle.case_evidence_used",
+                    cycle_id,
+                    {"case_id": case.id, "task_id": intel.id},
+                )
+                intel = self._get(intel.id)
         reused = self._reuse_prior_research(
             str(research_inputs["topic"]), [str(k) for k in research_inputs["keywords"]]
         )

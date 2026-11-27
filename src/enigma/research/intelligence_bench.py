@@ -211,6 +211,7 @@ def run_local_suite(
         "passed": sum(1 for score in scores if score.passed),
         "total": len(scores),
         "response_excerpt": raw[:1500],
+        "parsed": body,
     }
 
 

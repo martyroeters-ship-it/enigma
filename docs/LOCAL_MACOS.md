@@ -151,6 +151,8 @@ Open http://127.0.0.1:8000/ . JSON lives at `/api/health`, `/api/cycles`, `/api/
 
 `enigma report` prints research hours, scientific and technical failures, inference cost, novel mechanisms and adopted improvements for the current home. `enigma accept --home <isolated-copy>` reads an isolated copy and refuses the active `ENIGMA_HOME`. It does not trade, spend, or reseal a holdout. A criterion it cannot observe is reported as blocked. Do not point either command at `~/enigma-run` from an experimental branch.
 
+A discovered objective uses the evidence already stored with its scientific case and compiles that case's research program. It does not score the seed library and it does not ask the model to write a replacement strategy. `enigma inquire` scores one local completion and does not register it. `enigma inquire --register` registers the reply only when it is a complete case that cites stored non-AI evidence. A malformed reply stays unregistered. Run it on an isolated copy.
+
 ## Stop
 
 `enigma run` handles SIGINT and SIGTERM. The current step finishes, then the heartbeat is `stopped`.

@@ -359,8 +359,19 @@ def accept(
 
 
 @app.command()
-def inquire() -> None:
-    """Ask the local model once. Does not register a case and does not call a paid model."""
+def inquire(
+    register: Annotated[
+        bool,
+        typer.Option(
+            "--register",
+            help="Register the reply only when it is a valid case citing stored evidence.",
+        ),
+    ] = False,
+) -> None:
+    """Ask the local model once. A malformed reply is not turned into a seed mechanism."""
+    from datetime import UTC, datetime  # noqa: PLC0415
+
+    from enigma.research.inquiry import case_from_model  # noqa: PLC0415
     from enigma.research.intelligence_bench import run_local_suite  # noqa: PLC0415
     from enigma.schemas.knowledge import EvidenceItem  # noqa: PLC0415
 
@@ -369,6 +380,11 @@ def inquire() -> None:
         evidence = stores.documents.list(EvidenceItem, limit=200)
         ids = {item.id for item in evidence if not item.is_ai_interpretation}
         result = run_local_suite(ids)
+        if register:
+            parsed = result.get("parsed")
+            result["registration"] = case_from_model(
+                stores, parsed if isinstance(parsed, dict) else {}, datetime.now(UTC)
+            )
     finally:
         stores.db.close()
     typer.echo(json.dumps(result, indent=2, default=str))

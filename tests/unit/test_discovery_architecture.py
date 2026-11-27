@@ -12,12 +12,19 @@ from enigma.learning.intervention import BenchmarkComparison, apply_intervention
 from enigma.orchestrator.acceptance import assess, demonstrate, refuse_active_home
 from enigma.orchestrator.report import build_report
 from enigma.research.checks import resolve_column
-from enigma.research.inquiry import register_case
+from enigma.research.inquiry import (
+    case_from_model,
+    compiled_case_strategy,
+    hypothesis_from_case,
+    register_case,
+    registered_case_retrieval,
+)
 from enigma.research.intelligence_bench import run_local_suite, score_failure_diagnosis
 from enigma.schemas.common import AgentRole
 from enigma.schemas.governance import ImprovementProposal, ProposalStatus, ProposalTarget
 from enigma.schemas.inquiry import ScientificCase
 from enigma.schemas.knowledge import EvidenceItem
+from enigma.schemas.research import ResearchObjective
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -60,6 +67,44 @@ def test_demonstration_registers_a_program_and_an_intervention(tmp_path: Path) -
     assert report["improvements_adopted"] == 1
     assert "scientific_failures" in report
     assert "inference" in report
+
+
+def test_registered_case_is_the_hypothesis_and_the_strategy(tmp_path: Path) -> None:
+    rig = Rig(tmp_path / "case.sqlite3")
+    demonstrate(rig.stores, rig.fsm, None, now=NOW)
+    case = rig.stores.documents.list(ScientificCase, limit=1)[0]
+    objective = next(
+        item
+        for item in rig.stores.documents.list(ResearchObjective, limit=10)
+        if "discovered" in item.topics
+    )
+    hypothesis = hypothesis_from_case(
+        case,
+        objective,
+        cycle_id="cyc_demo",
+        dataset_version_id="ds_demo",
+        now=NOW,
+    )
+    assert hypothesis.generation_method == f"research-program:{case.id}"
+    assert hypothesis.evidence_ids == case.supporting_evidence_ids
+    assert hypothesis.prediction == case.predictions[0].statement
+    assert hypothesis.trial_budget == 1
+    source, entrypoint, columns = compiled_case_strategy(hypothesis, rig.stores.documents.get)
+    assert entrypoint == "ResearchProgramStrategy"
+    assert "funding_rate" in columns and "basis" in columns
+    assert "funding_rate" in source and "basis" in source
+    library = hypothesis.model_copy(update={"generation_method": "template:mechanism-library-v1"})
+    assert compiled_case_strategy(library, rig.stores.documents.get) is None
+    retrieval = registered_case_retrieval(case, rig.stores.documents.get)
+    assert retrieval is not None
+    assert retrieval["http_requests"] == 0
+    assert len(retrieval["source_ids"]) == 2
+    refused = case_from_model(
+        rig.stores,
+        {"mechanism": "A slogan.", "program": "a z-score"},
+        NOW,
+    )
+    assert refused.startswith("model output is not a scientific case")
 
 
 def test_intervention_rolls_back(tmp_path: Path) -> None:

@@ -57,7 +57,7 @@ def compile_program(program: ResearchProgram, class_name: str = "ResearchProgram
         raise ValueError(problem)
     if _NAME.fullmatch(class_name) is None:
         raise ValueError("class name must be an identifier")
-    columns = _columns(program)
+    columns = program_columns(program)
     body = _method_body(program)
     column_tuple = ", ".join(repr(name) for name in columns)
     return (
@@ -71,6 +71,11 @@ def compile_program(program: ResearchProgram, class_name: str = "ResearchProgram
         "    def target_positions(self, data):\n"
         f"{body}"
     )
+
+
+def program_columns(program: ResearchProgram) -> tuple[str, ...]:
+    """Column names the compiled strategy reads. Order is stable."""
+    return _columns(program)
 
 
 def _columns(program: ResearchProgram) -> tuple[str, ...]:
