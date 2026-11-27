@@ -2,8 +2,9 @@
 
 A direction is one mechanism on one instrument at one horizon. Completing it once is
 enough unless a lesson recorded a positive gross edge that costs then destroyed.
-A mechanism that keeps failing is abandoned. The ranker prefers information gain and
-novelty over running more copies of the same question.
+A mechanism is set aside only after every seeded direction has a scientific result
+and none passed. A method-gate or infrastructure failure is not such a result.
+The ranker prefers information gain and novelty over running more copies of the same question.
 """
 
 from __future__ import annotations
@@ -16,7 +17,6 @@ from enigma.orchestrator.cio import (
     FamilyHistory,
     ResearchPrioritizer,
     ScoredCandidate,
-    information_gain,
 )
 from enigma.orchestrator.planning import (
     build_inputs,
@@ -29,12 +29,13 @@ from enigma.research.mechanisms import MECHANISMS
 from enigma.schemas.cycle import NextExperimentProposal
 from enigma.schemas.market import MarketScanReport
 from enigma.schemas.research import Hypothesis, ResearchObjective
+from enigma.schemas.validation import RedactedValidationSummary
 from enigma.store import Stores
 
 HORIZONS = ("1h", "8h", "1d")
 SYMBOLS = ("BTCUSDT", "ETHUSDT")
 REVISIT = "revisit:positive_gross_destroyed_by_costs"
-_INFO_GAIN_FLOOR = 0.35
+_METHOD_GATES = frozenset({"G01", "G02", "G16"})
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,18 @@ def _completed(history: FamilyHistory | None) -> int:
     return history.passes + history.fails
 
 
+def _scientific(stores: Stores, state: dict[str, object]) -> bool:
+    """Infrastructure and split/implementation gates are not evidence about a mechanism."""
+    summary_id = state.get("validation_summary_id")
+    if not summary_id:
+        return True
+    summary = stores.documents.get(RedactedValidationSummary, str(summary_id))
+    if summary is None:
+        return True
+    gates = {name.split(":", 1)[0] for name in summary.failed_gate_names}
+    return not gates or not gates <= _METHOD_GATES
+
+
 def direction_history(stores: Stores) -> dict[str, FamilyHistory]:
     """Completed validations only. An abort is not a scientific trial of the direction."""
     hypotheses = {h.id: h for h in stores.documents.list(Hypothesis, limit=10_000)}
@@ -63,7 +76,7 @@ def direction_history(stores: Stores) -> dict[str, FamilyHistory]:
         if hyp is None:
             continue
         overall = state.get("validation_overall")
-        if overall not in {"PASS", "FAIL"}:
+        if overall not in {"PASS", "FAIL"} or not _scientific(stores, state):
             continue
         mechanism = hyp.family_id.removeprefix("fam_")
         horizon = hyp.horizon or "8h"
@@ -200,11 +213,14 @@ def apply_direction_policy(
                 continue
         mechanism = candidate.family.removeprefix("fam_").split("|", 1)[0]
         mech_hist = mechanisms.get(mechanism)
+        # A mechanism stays open until every seeded direction has a scientific
+        # result and none passed. A handful of failures does not close the rest.
+        grid = len(SYMBOLS) * len(HORIZONS) if mechanism in MECHANISMS else None
         abandoned = (
-            mech_hist is not None
+            grid is not None
+            and mech_hist is not None
             and mech_hist.passes == 0
-            and _completed(mech_hist) >= policy.diminishing_returns_min_cycles
-            and information_gain(mech_hist) < _INFO_GAIN_FLOOR
+            and _completed(mech_hist) >= max(grid, policy.diminishing_returns_min_cycles)
         )
         exact: FamilyHistory | None = None
         if candidate.kind == "opportunity" and len(candidate.refs) == 3:
@@ -217,8 +233,8 @@ def apply_direction_policy(
                     item,
                     viable=False,
                     reason=(
-                        "diminishing returns: this mechanism has failed without a pass "
-                        "and is abandoned"
+                        "every seeded direction of this mechanism has a scientific result "
+                        "and none passed"
                     ),
                 )
             )

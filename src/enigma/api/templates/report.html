@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Report{% endblock %}
+{% block content %}
+<h1>Research report</h1>
+<p class="muted">Read from stored records. This page does not start a cycle.</p>
+<div class="grid">
+  <div class="card"><div class="k">Completed experiments</div><div class="v">{{ report.completed_experiments }}</div></div>
+  <div class="card"><div class="k">Cycles finished</div><div class="v">{{ report.cycles_finished }}</div></div>
+  <div class="card"><div class="k">Viable backlog</div><div class="v">{{ report.backlog_viable }}</div></div>
+  <div class="card"><div class="k">Improvements adopted</div><div class="v">{{ report.improvements_adopted|length }}</div></div>
+  <div class="card"><div class="k">Mechanisms discovered</div><div class="v">{{ report.discovered_mechanisms|length }}</div></div>
+  <div class="card"><div class="k">Idle hours</div><div class="v">{{ report.idle_hours if report.idle_hours is not none else "n/a" }}</div></div>
+</div>
+<h2>Account</h2>
+<pre>{{ text }}</pre>
+{% endblock %}

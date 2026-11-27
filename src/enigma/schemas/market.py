@@ -24,4 +24,6 @@ class MarketScanReport(StrictModel):
     top_zscore: float | None = None
     suggested_mechanism: str = ""
     objective_id: str | None = None
+    top_available_at: UtcDatetime | None = None
+    note: str = ""
     created_at: UtcDatetime

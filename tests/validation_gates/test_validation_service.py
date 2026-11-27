@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
+import numpy as np
 import polars as pl
 import pytest
 
@@ -16,10 +17,14 @@ from _synthetic import (
     make_panel,
     package,
 )
-from _validation_env import EnvFactory
+from _validation_env import NOW, EnvFactory
 from enigma.core.errors import IntegrityError
+from enigma.core.hashing import sha256_of
 from enigma.fsm import STRATEGY_LIFECYCLE
+from enigma.research.discovery import probe_source
+from enigma.schemas.common import AgentRole, Instrument
 from enigma.schemas.knowledge import FailureCondition, FailureKind
+from enigma.schemas.research import DataQualityCheck, DataQualityReport, DatasetVersion
 from enigma.schemas.validation import GateOutcome, RedactedValidationSummary, ValidationReport
 from enigma.validation import InMemoryHoldoutSource
 
@@ -138,6 +143,105 @@ def test_research_window_overlapping_embargo_fails_g02(make_env: EnvFactory) -> 
     assert g02.result is GateOutcome.FAIL
     assert g02.details["violations"][0]["kind"] == "experiment_window_overlaps_embargo"
     assert report.overall is GateOutcome.FAIL
+
+
+def test_dataset_ending_on_the_embargo_is_not_a_g02_overlap(make_env: EnvFactory) -> None:
+    frame = make_panel(seed=15, edge=0.25)
+    env = make_env(frame, name="boundary")
+    pkg = package(BASIS_SIGN, "BasisSign", ("basis",), {"threshold": 0.0001})
+    symbols = sorted(frame.get_column("symbol").unique().to_list())
+    cutoff = env.service.seal_holdout(symbols)
+    env.research.put(
+        DatasetVersion(
+            id="ds_research_test",
+            name="boundary",
+            instruments=tuple(
+                Instrument(
+                    symbol=symbol,
+                    base=symbol[:-4],
+                    quote="USDT",
+                    kind="perpetual",
+                    venue="binance_usdm",
+                )
+                for symbol in symbols
+            ),
+            venue="binance_usdm",
+            frequency="8h",
+            schema_version="t",
+            columns=tuple(frame.columns),
+            time_start=frame.get_column("ts").min(),
+            time_end=cutoff,
+            row_count=frame.height,
+            content_hash=sha256_of({"boundary": True}),
+            uri="memory://boundary",
+            pit_certified=True,
+            quality=DataQualityReport(checks=(DataQualityCheck(name="pit", passed=True),)),
+            provenance={"test": True},
+            created_by=AgentRole.DATA_ENGINEERING,
+            created_at=NOW,
+        )
+    )
+    report = env.service.validate(env.submit(pkg))
+    g02 = next(g for g in report.gates if g.gate_id == "G02")
+    kinds = [item["kind"] for item in g02.details.get("violations", [])]
+    assert "research_dataset_overlaps_embargo" not in kinds
+
+
+def test_a_dataset_whose_bar_length_is_not_the_protocol_is_refused(make_env: EnvFactory) -> None:
+    frame = make_panel(seed=15, edge=0.25)
+    env = make_env(frame, name="daily")
+    pkg = package(BASIS_SIGN, "BasisSign", ("basis",), {"threshold": 0.0001})
+    symbols = sorted(frame.get_column("symbol").unique().to_list())
+    env.research.put(
+        DatasetVersion(
+            id="ds_research_test",
+            name="daily",
+            instruments=tuple(
+                Instrument(
+                    symbol=symbol,
+                    base=symbol[:-4],
+                    quote="USDT",
+                    kind="perpetual",
+                    venue="binance_usdm",
+                )
+                for symbol in symbols
+            ),
+            venue="binance_usdm",
+            frequency="1d",
+            schema_version="t",
+            columns=tuple(frame.columns),
+            time_start=frame.get_column("ts").min(),
+            time_end=frame.get_column("ts").max(),
+            row_count=frame.height,
+            content_hash=sha256_of({"daily": True}),
+            uri="memory://daily",
+            pit_certified=True,
+            quality=DataQualityReport(checks=(DataQualityCheck(name="pit", passed=True),)),
+            provenance={"test": True},
+            created_by=AgentRole.DATA_ENGINEERING,
+            created_at=NOW,
+        )
+    )
+    with pytest.raises(IntegrityError, match="pinned protocol"):
+        env.service.validate(env.submit(pkg))
+
+
+def test_a_discovered_probe_receives_an_independent_validation(make_env: EnvFactory) -> None:
+    frame = make_panel(seed=19, n_bars=800)
+    volume = np.abs(np.random.default_rng(3).normal(1.0, 0.3, frame.height))
+    frame = frame.with_columns(pl.Series("perp_quote_volume", volume))
+    env = make_env(frame, name="probe")
+    source = probe_source("perp_quote_volume", "quote-volume-probe")
+    pkg = package(
+        source,
+        "DiscoveredProbe",
+        ("perp_quote_volume",),
+        {"lookback": 21, "z_entry": 1.5, "sign": 1.0},
+    )
+    report = env.service.validate(env.submit(pkg))
+    assert report.overall in {GateOutcome.PASS, GateOutcome.FAIL}
+    assert report.validator_build_sha
+    assert env.fsm.state(STRATEGY_LIFECYCLE, pkg.id) in {"VALIDATION_PASSED", "VALIDATION_FAILED"}
 
 
 def test_unregistered_package_fails_g06(make_env: EnvFactory) -> None:

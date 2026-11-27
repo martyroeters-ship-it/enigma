@@ -69,7 +69,7 @@ The container is read-only except for one temporary directory, drops every capab
 
 ## Continuous research
 
-`enigma up` keeps the institution running. With `registries/schedules.yaml` set to `continuous: true` and `max_cycles_per_day: 0`, it does not stop after four cycles and it does not wait for a typed objective. One cycle runs at a time. When it finishes or aborts, the next viable backlog item starts on the following step. The backlog is the four registered mechanisms on BTCUSDT and ETHUSDT at 1h, 8h, and 1d horizons, plus any proposed follow-up and any market-scan objective. A direction that already has a completed validation is not repeated. A mechanism that has failed at least three times with no pass and little left to learn is abandoned. The only repeat is a follow-up whose lesson recorded a positive gross Sharpe that costs then destroyed.
+`enigma up` keeps the institution running. With `registries/schedules.yaml` set to `continuous: true` and `max_cycles_per_day: 0`, it does not stop after four cycles and it does not wait for a typed objective. One cycle runs at a time. When it finishes or aborts, the next viable backlog item starts on the following step. The four registered mechanisms on BTCUSDT and ETHUSDT at 1h, 8h, and 1d horizons are the initial seeds, plus any proposed follow-up and any market-scan objective. A direction that already has a completed scientific validation is not repeated. A method-gate or infrastructure failure does not count as that result, and a few failed directions do not retire the rest of a mechanism. When no seeded direction is still viable, the institution looks for a verbatim claim or a fresh observation that justifies one new falsifiable question. It does not invent a question to stay busy. The only repeat of a finished direction is a follow-up whose lesson recorded a positive gross Sharpe that costs then destroyed.
 
 Ollama, the dashboard, and this process stay on the Mac. Strategy code still uses the Docker sandbox. Paid API spend stays $0. Paper and live trading stay off. Do not set `ENIGMA_SANDBOX_ALLOW_WEAK`.
 
@@ -78,7 +78,7 @@ Leave `~/enigma-run` in place. If that directory was copied from another machine
 ```bash
 cd ~/enigma
 git fetch origin
-git checkout cursor/portable-home-2746
+git checkout cursor/research-discovery-2746
 git pull
 uv sync
 
@@ -104,7 +104,14 @@ export ENIGMA_HOME="$HOME/enigma-run"
 uv run enigma dashboard --host 127.0.0.1 --port 8000
 ```
 
-Open http://127.0.0.1:8000/ . The overview shows the mode, the memory floor, the last inference time, and the ranked backlog. JSON for the same view is `/api/operations`.
+Open http://127.0.0.1:8000/ . The overview shows the mode, the memory floor, the last inference time, and the ranked backlog. JSON for the same view is `/api/operations`. The overnight account is http://127.0.0.1:8000/report and the same text from the shell:
+
+```bash
+export ENIGMA_HOME="$HOME/enigma-run"
+uv run enigma report
+```
+
+The report lists completed experiments, rejected hypotheses, the best research-window results, validation outcomes, mechanisms discovered from evidence, lessons, adopted improvements, cycle counts, idle time, the last inference, costs, and the next viable objectives. It only reads stored records.
 
 `enigma research` still runs objectives that are already submitted and then stops. It does not open the standing backlog. Use `enigma up` for continuous operation.
 

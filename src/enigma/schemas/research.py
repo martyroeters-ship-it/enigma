@@ -179,3 +179,24 @@ class Experiment(StrictModel):
     created_by: Actor
     started_at: UtcDatetime | None = None
     ended_at: UtcDatetime | None = None
+
+
+class DiscoveredMechanism(StrictModel):
+    """A mechanism formulated from evidence the institution holds, not from the seed library."""
+
+    id: NonEmptyStr
+    name: NonEmptyStr
+    mechanism: NonEmptyStr
+    prediction: NonEmptyStr
+    formal_statement: NonEmptyStr
+    features: tuple[str, ...] = Field(min_length=1)
+    horizon: NonEmptyStr
+    evidence_ids: tuple[str, ...] = ()
+    entrypoint: NonEmptyStr
+    source_code: NonEmptyStr
+    param_grid: dict[str, tuple[float | int, ...]]
+    origin: NonEmptyStr = Field(description="evidence | observation | missing_data")
+    objective_id: NonEmptyStr
+    contributions: dict[str, str] = Field(default_factory=dict)
+    created_by: Actor
+    created_at: UtcDatetime

@@ -54,6 +54,7 @@ from enigma.schemas.quant import (
 )
 from enigma.schemas.research import (
     DatasetVersion,
+    DiscoveredMechanism,
     Experiment,
     Hypothesis,
     ResearchObjective,
@@ -106,6 +107,7 @@ for _model, _kind, _plane in (
     (KnowledgeEdge, "edge", Plane.RESEARCH),
     (MarketMechanism, "mechanism", Plane.RESEARCH),
     (DatasetVersion, "dataset_version", Plane.RESEARCH),
+    (DiscoveredMechanism, "discovered_mechanism", Plane.RESEARCH),
     (Hypothesis, "hypothesis", Plane.RESEARCH),
     (RegisteredHypothesis, "registered_hypothesis", Plane.RESEARCH),
     (GenerationResult, "hypothesis_generation", Plane.RESEARCH),

@@ -48,6 +48,21 @@ def _mechanism_label(mechanism_id: str, hypothesis: Hypothesis) -> str:
     return mechanism_id or "unknown_mechanism"
 
 
+def _scope(ev: CycleEvidence, gross_state: str, net: list[float], median: float) -> str:
+    """How far a failed result is allowed to travel. Method gates are not a mechanism verdict."""
+    names = ev.summary.failed_gate_names if ev.summary else ()
+    gate_ids = {name.split(":", 1)[0] for name in names}
+    if ev.summary is None:
+        return "verdict:no_decision"
+    if gate_ids and gate_ids <= {"G01", "G02", "G16"}:
+        return "verdict:method"
+    if gross_state == "positive" and ({"G03", "G12"} & gate_ids or (net and median <= 0)):
+        return "verdict:cost"
+    if gross_state == "absent":
+        return "verdict:hypothesis"
+    return "verdict:direction"
+
+
 def derive_lessons(ev: CycleEvidence, now: UtcDatetime) -> list[Lesson]:
     done = [e for e in ev.experiments if e.status is ExperimentStatus.SUCCEEDED]
     net = _metric(done, "net_sharpe")
@@ -91,6 +106,7 @@ def derive_lessons(ev: CycleEvidence, now: UtcDatetime) -> list[Lesson]:
         if ev.summary
         else "no validation decision"
     )
+    scope = _scope(ev, gross_state, net, median)
     add(
         "outcome",
         f"{mechanism_name} on {', '.join(symbols)}: {len(ev.experiments)} "
@@ -100,8 +116,8 @@ def derive_lessons(ev: CycleEvidence, now: UtcDatetime) -> list[Lesson]:
             if gross
             else "gross Sharpe was not recorded; "
         )
-        + f"{verdict}.",
-        ("validation_outcome",),
+        + f"{verdict}. Scope {scope}.",
+        ("validation_outcome", scope),
     )
 
     if net and max(net) <= 0:

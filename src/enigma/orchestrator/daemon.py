@@ -395,9 +395,51 @@ class Daemon:
             except IntegrityError as exc:
                 self._quarantine(item.candidate, exc)
                 pause = f"quarantined {item.candidate.id}"
+        if not opened and open_slot and not viable:
+            discovered = self._open_discovered()
+            if discovered:
+                opened = discovered
+                pause = ""
         self._record_cio_decision(agenda, opened)
         self._publish_operations(agenda, "" if opened else pause)
         return bool(opened)
+
+    def _open_discovered(self) -> tuple[ScoredCandidate, ...]:
+        from enigma.research.discovery import replenish  # noqa: PLC0415
+
+        objective_id = replenish(self.inst.stores, self.inst.clock.now(), backlog_exhausted=True)
+        if objective_id is None:
+            return ()
+        try:
+            self.inst.driver.open_objective(objective_id)
+        except IntegrityError as exc:
+            self._quarantine(
+                Candidate(
+                    id=objective_id,
+                    kind="discovered",
+                    summary=objective_id,
+                    family=objective_id,
+                    refs=(objective_id,),
+                ),
+                exc,
+            )
+            return ()
+        except (KeyError, ValueError):
+            return ()
+        return (
+            ScoredCandidate(
+                candidate=Candidate(
+                    id=objective_id,
+                    kind="discovered",
+                    summary=objective_id,
+                    family=objective_id,
+                    refs=(objective_id,),
+                ),
+                score=0.0,
+                components={},
+                viable=True,
+            ),
+        )
 
     def _open_ranked(self, candidate: Candidate) -> bool:
         if candidate.kind == "next_experiment" and candidate.proposal_id:
@@ -542,6 +584,10 @@ class Daemon:
 
         now = self.inst.clock.now()
         changed = False
+        from enigma.learning.lifecycle import advance_improvements  # noqa: PLC0415
+
+        if advance_improvements(self.inst.stores, self.inst.fsm, now):
+            changed = True
         if self.schedule.review_interval_hours > 0:
             window = int(now.timestamp() // (self.schedule.review_interval_hours * 3600))
             flag = f"institution-review:{window}"
@@ -653,6 +699,7 @@ class Daemon:
             self.inst.stores,
             self.inst.clock.now(),
             interval_hours=self.schedule.market_scan_interval_hours,
+            roots=getattr(self.inst.services, "roots", None),
         )
         opened = self._open_scan_objective()
         return created or opened

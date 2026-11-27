@@ -257,6 +257,18 @@ def kill_switch(state: Annotated[str, typer.Argument(help="on | off")]) -> None:
     typer.echo(f"kill switch {state}")
 
 
+@app.command("report")
+def research_report() -> None:
+    """Print the institutional research report for the current home."""
+    from enigma.orchestrator.report import render_report  # noqa: PLC0415
+
+    _, stores = _stores()
+    try:
+        typer.echo(render_report(stores))
+    finally:
+        stores.db.close()
+
+
 sandbox_app = typer.Typer(help="Strategy sandbox backends")
 app.add_typer(sandbox_app, name="sandbox")
 
