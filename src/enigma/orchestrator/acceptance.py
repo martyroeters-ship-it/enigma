@@ -190,7 +190,7 @@ def _validation(stores: Stores, gates_ok: bool) -> dict[str, Any]:
     if not gates_ok:
         return _criterion(
             7, "independent validation", "fail", "frequency protocol is weaker than 1.0.0"
-        )  # noqa: E501
+        )
     return _criterion(
         7,
         "independent validation",
