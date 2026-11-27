@@ -52,6 +52,25 @@ def test_quiet_series_and_short_window_rank_nothing() -> None:
     assert short == ()
 
 
+def test_repeated_prints_do_not_change_the_zscore() -> None:
+    values = [0.0] * 19 + [10.0]
+    cutoff = START + timedelta(hours=19)
+    rows = _rows(values)
+    once = scan_rows(rows, symbol="BTCUSDT", field="funding_rate", cutoff=cutoff)
+    twice = scan_rows(rows + rows, symbol="BTCUSDT", field="funding_rate", cutoff=cutoff)
+    assert once and twice
+    assert twice[0].zscore == once[0].zscore
+
+
+def test_conflicting_values_at_one_timestamp_are_not_an_anomaly() -> None:
+    rows = _rows([0.0] * 20)
+    rows.append({"available_at": rows[-1]["available_at"], "funding_rate": 10.0})
+    ranked = scan_rows(
+        rows, symbol="BTCUSDT", field="funding_rate", cutoff=rows[-1]["available_at"]
+    )
+    assert ranked == ()
+
+
 def test_scan_is_deterministic() -> None:
     rows = _rows([0.0] * 12 + [4.0] + [0.0] * 12 + [-4.0])
     cutoff = START + timedelta(hours=len(rows))

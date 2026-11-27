@@ -82,17 +82,18 @@ class CatalogHoldoutSource:
         self.catalog = catalog
         self.data_start = data_start
         self.clock = clock
-        self._versions: dict[tuple[tuple[str, ...], datetime, datetime], DatasetVersion] = {}
+        self.frequency = "8h"
+        self._versions: dict[tuple[tuple[str, ...], datetime, datetime, str], DatasetVersion] = {}
 
     def available_range(self, symbols: Sequence[str]) -> tuple[datetime, datetime]:
         today = self.clock.now().astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         return self.data_start, today - timedelta(days=1)
 
     def _version(self, symbols: Sequence[str], start: datetime, end: datetime) -> DatasetVersion:
-        key = (tuple(sorted(symbols)), start, end)
+        key = (tuple(sorted(symbols)), start, end, self.frequency)
         if key not in self._versions:
             self._versions[key] = self.catalog.acquire_perp_funding_panel(
-                list(symbols), start, end, "8h"
+                list(symbols), start, end, self.frequency
             )
         return self._versions[key]
 
@@ -137,7 +138,8 @@ class OperationalServices:
         self.sandbox = SandboxRunner(audit=stores.audit, actor="strategy_sandbox")
         self.engine = BarBacktestEngine()
         self._validation: ValidationService | None = None
-        self._cutoffs: dict[tuple[str, ...], datetime] = {}
+        self.acquire_frequency = "8h"
+        self._cutoffs: dict[object, datetime] = {}
         self.gateway = ModelGateway(
             ModelRegistry.load(settings.registries_dir / "models"),
             stores.costs,
@@ -165,11 +167,20 @@ class OperationalServices:
             )
         return self._validation
 
-    def research_cutoff(self, symbols: Sequence[str]) -> datetime:
-        key = tuple(sorted(symbols))
-        if key not in self._cutoffs:
-            self._cutoffs[key] = self.validation.seal_holdout(key)
-        return self._cutoffs[key]
+    def research_cutoff(self, symbols: Sequence[str], frequency: str | None = None) -> datetime:
+        stored = getattr(self, "acquire_frequency", "8h")
+        freq = frequency or (stored if isinstance(stored, str) else "8h")
+        symbols_key = tuple(sorted(symbols))
+        key: object = (symbols_key, freq)
+        cached = self._cutoffs.get(key)
+        if cached is None and freq == "8h":
+            # Older callers cached the cutoff by symbol tuple alone.
+            cached = self._cutoffs.get(symbols_key)
+        if cached is None:
+            self.holdout_source.frequency = freq
+            cached = self.validation.seal_holdout(symbols_key, frequency=freq)
+            self._cutoffs[key] = cached
+        return cached
 
     def validation_run(self, request_id: str) -> dict[str, Any]:
         request = self.stores.documents.require(ValidationRequest, request_id)

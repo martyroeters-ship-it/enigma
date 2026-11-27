@@ -21,8 +21,9 @@ from enigma.learning.lessons import CycleEvidence, derive_lessons, propose_next
 from enigma.learning.review import review_institution
 from enigma.research.bridge import hypothesis_from_proposal
 from enigma.research.context import build_research_context
+from enigma.research.discovery import resolve_mechanism
 from enigma.research.hybrid import compare_funding_to_returns
-from enigma.research.hypothesis import build_hypothesis, score_mechanisms
+from enigma.research.hypothesis import MechanismScore, build_hypothesis, score_mechanisms
 from enigma.research.mechanisms import MECHANISMS, family_id_for_domain
 from enigma.research.microstructure import METHOD as MICRO_METHOD
 from enigma.research.microstructure import analyze_panel, findings
@@ -39,6 +40,7 @@ from enigma.schemas.quant import (
 )
 from enigma.schemas.research import (
     DatasetVersion,
+    DiscoveredMechanism,
     Experiment,
     ExperimentStatus,
     Hypothesis,
@@ -197,11 +199,72 @@ class QuantResearchAgent(Agent):
 
     def execute(self, ctx: AgentContext) -> TaskOutcome:
         i = ctx.task.inputs
+        objective = ctx.view.require(ResearchObjective, i["objective_id"])
+        discovered_id = next(
+            (topic for topic in objective.topics if str(topic).startswith("disc_")), None
+        )
+        if discovered_id is not None:
+            return self._execute_discovered(ctx, discovered_id)
         if i.get("recovery") == "alternate":
             return self._execute_recovery(ctx)
         if i.get("hypothesis_mode") == "llm":
             return self._execute_llm(ctx)
         return self._execute_deterministic(ctx)
+
+    def _execute_discovered(self, ctx: AgentContext, mechanism_id: str) -> TaskOutcome:
+        """The registered question is the hypothesis. The model does not rewrite it."""
+        i = ctx.task.inputs
+        objective = ctx.view.require(ResearchObjective, i["objective_id"])
+        mechanism = resolve_mechanism(ctx.view, mechanism_id)
+        if mechanism is None:
+            return TaskOutcome(
+                outputs={"hypothesis_id": None, "failure_reason": "discovered mechanism missing"},
+                what_failed="discovered mechanism missing",
+            )
+        stored = ctx.view.get(DiscoveredMechanism, mechanism_id)
+        evidence_ids = stored.evidence_ids if stored is not None else ()
+        score = MechanismScore(
+            mechanism_id=mechanism.id,
+            support=1.0,
+            contradiction=0.0,
+            data_support=1.0,
+            lesson_penalty=0.0,
+            supporting_evidence=evidence_ids,
+            contradicting_evidence=(),
+        )
+        hypothesis = build_hypothesis(
+            objective,
+            mechanism,
+            score,
+            objective.instruments,
+            cycle_id=i["cycle_id"],
+            now=ctx.clock.now(),
+            dataset_version_ids=(i["dataset_version_id"],),
+        )
+        ctx.view.put(hypothesis)
+        ctx.tools.call("knowledge.index", doc=hypothesis)
+        return TaskOutcome(
+            outputs={
+                "hypothesis_id": hypothesis.id,
+                "family_id": hypothesis.family_id,
+                "mechanism_id": mechanism.id,
+                "trial_budget": hypothesis.trial_budget,
+                "execution_mode": ExecutionMode.DETERMINISTIC,
+            },
+            decisions=[
+                DecisionRecord(
+                    "hypothesis_selection",
+                    mechanism.id,
+                    "discovered_mechanism",
+                    "Registered the falsifiable question already stored for this mechanism. "
+                    "No seed was substituted and no model rewrote the claim.",
+                    input_refs=(objective.id, *evidence_ids[:10]),
+                    output_refs=(hypothesis.id,),
+                    execution_mode=ExecutionMode.DETERMINISTIC,
+                )
+            ],
+            what_worked=f"discovered mechanism {mechanism.id}",
+        )
 
     def _execute_deterministic(self, ctx: AgentContext) -> TaskOutcome:
         i = ctx.task.inputs
@@ -512,15 +575,19 @@ class StrategyEngineeringAgent(Agent):
     def execute(self, ctx: AgentContext) -> TaskOutcome:
         i = ctx.task.inputs
         hyp = ctx.view.require(Hypothesis, i["hypothesis_id"])
-        mech_id = _mechanism_id(hyp.family_id)
-        # Explicit ENIGMA_STRATEGY_MODE=llm is the only path that code-generates a
-        # registered mechanism. An LLM hypothesis that names a library mechanism
-        # is compiled from that mechanism's template. Domain "novel" is not in
-        # MECHANISMS, so it still goes through codegen. There is no silent
-        # substitution after a codegen failure.
-        if i.get("strategy_mode") == "llm" or mech_id not in MECHANISMS:
+        mech = resolve_mechanism(ctx.view, _mechanism_id(hyp.family_id))
+        # A discovered mechanism is always its compiled probe. A seed is
+        # code-generated only when the operator set ENIGMA_STRATEGY_MODE=llm.
+        # Anything unresolved still goes to codegen, and a codegen failure is
+        # not replaced with a seed.
+        if mech is None or (mech.id in MECHANISMS and i.get("strategy_mode") == "llm"):
             return self._execute_llm_codegen(ctx)
-        return self._execute_template(ctx, compiled_choice=i.get("strategy_mode") == "compile")
+        discovered = mech.id not in MECHANISMS
+        return self._execute_template(
+            ctx,
+            mech,
+            compiled_choice=i.get("strategy_mode") == "compile" or discovered,
+        )
 
     def _execute_llm_codegen(self, ctx: AgentContext) -> TaskOutcome:
         """LLM codegen path. Never falls back to mechanism templates on failure."""
@@ -556,11 +623,12 @@ class StrategyEngineeringAgent(Agent):
             generation_id=raw.get("generation_id"),
         )
 
-    def _execute_template(self, ctx: AgentContext, *, compiled_choice: bool = False) -> TaskOutcome:
+    def _execute_template(
+        self, ctx: AgentContext, mech: Any, *, compiled_choice: bool = False
+    ) -> TaskOutcome:
         i = ctx.task.inputs
         hyp = ctx.view.require(Hypothesis, i["hypothesis_id"])
         dataset = ctx.view.require(DatasetVersion, i["dataset_version_id"])
-        mech = MECHANISMS[_mechanism_id(hyp.family_id)]
         outcome = self._run_trials(
             ctx,
             hyp,

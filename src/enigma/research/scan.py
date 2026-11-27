@@ -51,6 +51,21 @@ def scan_rows(
         and row.get(field) is not None
     ]
     usable.sort(key=lambda row: (row["available_at"], row.get("symbol", symbol)))
+    # One value per timestamp. Repeated copies of the same print shrink the
+    # variance and make every symbol that shares those copies look like the
+    # same extreme z-score.
+    deduped: list[Mapping[str, Any]] = []
+    seen: dict[object, float] = {}
+    for row in usable:
+        stamp = row["available_at"]
+        value = float(row[field])
+        prior = seen.get(stamp)
+        if prior is not None and abs(prior - value) > 1e-12:
+            return ()
+        if prior is None:
+            seen[stamp] = value
+            deduped.append(row)
+    usable = deduped
     values = [float(row[field]) for row in usable]
     findings: list[Anomaly] = []
     for index, value in enumerate(values):

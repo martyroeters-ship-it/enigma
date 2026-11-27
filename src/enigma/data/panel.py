@@ -63,6 +63,14 @@ def bar_length(frequency: str) -> timedelta:
         raise ValueError(f"unsupported frequency {frequency!r}") from exc
 
 
+def periods_per_year(frequency: str) -> int:
+    """Bars in a 365-day year. The pinned 8h protocol uses 3 * 365 = 1095."""
+    per_day = timedelta(days=1) / bar_length(frequency)
+    if per_day != int(per_day):
+        raise ValueError(f"{frequency} does not divide a day")
+    return int(per_day) * 365
+
+
 def _utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         raise ValueError("datetimes must be timezone-aware")

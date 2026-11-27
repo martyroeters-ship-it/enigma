@@ -166,15 +166,21 @@ class ValidationService:
 
     # ---------------------------------------------------------------- public API
 
-    def seal_holdout(self, symbols: Sequence[str], label_horizon_bars: int = 1) -> datetime:
+    def seal_holdout(
+        self,
+        symbols: Sequence[str],
+        label_horizon_bars: int = 1,
+        frequency: str | None = None,
+    ) -> datetime:
         """Seal (or reuse) the holdout for `symbols`; return the research cutoff.
 
         Research data must have `ts` strictly before the returned instant (embargo start).
         Only the boundary is returned; no holdout rows leave the validation plane.
         """
+        bar_frequency = frequency or self.frequency
         manifest, frame = self.custody.seal(
             symbols,
-            self.frequency,
+            bar_frequency,
             self.protocol.version,
             float(self.protocol.gate("G02")["holdout_fraction"]),
             self.holdout_source,
@@ -187,7 +193,7 @@ class ValidationService:
         assert isinstance(cutoff, datetime)
         peer = peer_clock()
         if peer is not None:
-            assert_clock_skew(self.clock.now(), peer, embargo * bar_delta(self.frequency))
+            assert_clock_skew(self.clock.now(), peer, embargo * bar_delta(bar_frequency))
         return cutoff
 
     def validate(self, request: ValidationRequest) -> ValidationReport:
@@ -237,8 +243,22 @@ class ValidationService:
 
     # ---------------------------------------------------------------- pre-flight
 
+    def _refuse_unmatched_frequency(self, dataset_id: str) -> None:
+        """The pinned protocol annualizes one bar length. A different dataset is not a trial."""
+        from enigma.data.panel import periods_per_year  # noqa: PLC0415
+
+        dataset = self.documents.get(DatasetVersion, dataset_id)
+        if dataset is None:
+            return
+        if periods_per_year(dataset.frequency) != self.protocol.periods_per_year:
+            raise IntegrityError(
+                f"dataset {dataset.id} frequency {dataset.frequency} does not match "
+                "the pinned protocol annualization; validation was not run"
+            )
+
     def _preflight(self, request: ValidationRequest) -> _Inputs:
         package = self.documents.require(StrategyPackage, request.strategy_package_id)
+        self._refuse_unmatched_frequency(request.dataset_version_id)
         state = self.fsm.state(STRATEGY_LIFECYCLE, package.id)
         if state not in ("VALIDATION_QUEUED", "VALIDATION_RUNNING"):
             raise InvalidTransitionError(
@@ -460,7 +480,10 @@ class ValidationService:
         dataset_ids = {x.request.dataset_version_id, *(e.dataset_version_id for e in x.experiments)}
         for dataset_id in sorted(dataset_ids):
             dataset = self.documents.get(DatasetVersion, dataset_id)
-            if dataset is not None and _ns(dataset.time_end) >= x.embargo_start_ns:
+            # The research cutoff is the embargo start. A dataset whose last
+            # availability equals that instant closed on the boundary; it does
+            # not contain a later bar. Equality is not an overlap.
+            if dataset is not None and _ns(dataset.time_end) > x.embargo_start_ns:
                 overlaps.append({"kind": "research_dataset_overlaps_embargo", "id": dataset_id})
         return overlaps
 

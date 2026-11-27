@@ -7,9 +7,10 @@ delegation is idempotent, and every step is checkpointed before the next begins.
 
 from __future__ import annotations
 
+import inspect
 import math
 import os
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -40,6 +41,57 @@ from enigma.store import Stores
 WORKFLOW = "research_cycle"
 CIO = AgentRole.CIO
 _CHECK_FAILURE = "no_proposal_survived_checks"
+
+
+def _horizon(topics: tuple[str, ...]) -> str:
+    from enigma.data.binance import KLINE_INTERVALS  # noqa: PLC0415
+
+    for topic in topics:
+        if topic in KLINE_INTERVALS:
+            return topic
+    return "8h"
+
+
+def _resolve_cutoff(
+    cutoff: Callable[..., datetime], symbols: list[str], frequency: str
+) -> datetime:
+    parameters: Mapping[str, inspect.Parameter] | None
+    try:
+        parameters = inspect.signature(cutoff).parameters
+    except (TypeError, ValueError):
+        parameters = None
+    if parameters is not None and "frequency" in parameters:
+        return cutoff(symbols, frequency=frequency)
+    owner = getattr(cutoff, "__self__", None)
+    if owner is not None and hasattr(owner, "acquire_frequency"):
+        owner.acquire_frequency = frequency
+    return cutoff(symbols)
+
+
+def _frequency_refusal(stores: Stores, state: dict[str, Any]) -> str | None:
+    """A bar frequency that is not the pinned protocol is not submitted for a Sharpe gate."""
+    from enigma.data.panel import periods_per_year  # noqa: PLC0415
+    from enigma.schemas.research import DatasetVersion  # noqa: PLC0415
+    from enigma.validation.protocol import load_protocol  # noqa: PLC0415
+
+    dataset_id = state.get("dataset_version_id")
+    if not dataset_id:
+        return None
+    dataset = stores.documents.get(DatasetVersion, str(dataset_id))
+    if dataset is None:
+        return None
+    requested = str(state.get("frequency") or "8h")
+    if dataset.frequency != requested:
+        return (
+            f"dataset frequency {dataset.frequency} does not match the objective horizon "
+            f"{requested}; validation was not run"
+        )
+    if periods_per_year(dataset.frequency) != load_protocol().periods_per_year:
+        return (
+            f"refusing validation: dataset frequency {dataset.frequency} does not match "
+            "the pinned protocol annualization"
+        )
+    return None
 
 
 @dataclass(frozen=True)
@@ -104,7 +156,8 @@ class CycleDriver:
                 + "); refusing a second writer"
             )
         symbols = sorted({i.symbol for i in instruments})
-        research_end = self.research_cutoff(symbols)
+        frequency = _horizon(topics)
+        research_end = _resolve_cutoff(self.research_cutoff, symbols, frequency)
         if research_end <= self.policy.research_start:
             raise ValueError("research cutoff precedes the research data start")
         now = self.clock.now()
@@ -124,6 +177,7 @@ class CycleDriver:
             "objective_id": objective.id,
             "proposal_id": proposal_id,
             "symbols": symbols,
+            "frequency": frequency,
             "research_start": self.policy.research_start.isoformat(),
             "research_end": research_end.isoformat(),
             "started_at": now.isoformat(),
@@ -146,7 +200,8 @@ class CycleDriver:
             raise ValueError("a research cycle is already running; refusing a second writer")
         objective = self.stores.documents.require(ResearchObjective, objective_id)
         symbols = sorted({item.symbol for item in objective.instruments})
-        research_end = self.research_cutoff(symbols)
+        frequency = _horizon(objective.topics)
+        research_end = _resolve_cutoff(self.research_cutoff, symbols, frequency)
         if research_end <= self.policy.research_start:
             raise ValueError("research cutoff precedes the research data start")
         now = self.clock.now()
@@ -156,6 +211,7 @@ class CycleDriver:
             "objective_id": objective.id,
             "proposal_id": None,
             "symbols": symbols,
+            "frequency": frequency,
             "research_start": self.policy.research_start.isoformat(),
             "research_end": research_end.isoformat(),
             "started_at": now.isoformat(),
@@ -345,7 +401,7 @@ class CycleDriver:
             "symbols": state["symbols"],
             "start": state["research_start"],
             "end": state["research_end"],
-            "frequency": "8h",
+            "frequency": state.get("frequency") or "8h",
         }
 
     def _from_objective_received(self, cycle_id: str, state: dict[str, Any]) -> bool:
@@ -623,6 +679,10 @@ class CycleDriver:
         package_id = state.get("candidate_package_id")
         if not package_id:
             self.abort(cycle_id, "no strategy package ran successfully")
+            return True
+        refusal = _frequency_refusal(self.stores, state)
+        if refusal is not None:
+            self.abort(cycle_id, refusal)
             return True
         request_id = "vrq_" + sha256_hex(f"{cycle_id}|{package_id}")[:26].upper()
         if self.stores.documents.get(ValidationRequest, request_id) is None:
