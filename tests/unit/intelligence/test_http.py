@@ -107,11 +107,14 @@ def test_raw_responses_are_content_addressed(make_client: ClientFactory, tmp_pat
     respx.get("https://api.example.org/a").mock(
         return_value=httpx.Response(200, content=body, headers={"content-type": "application/json"})
     )
-    response = make_client().get("https://api.example.org/a")
+    client = make_client()
+    response = client.get("https://api.example.org/a")
     digest = hashlib.sha256(body).hexdigest()
     assert response.content_hash == f"sha256:{digest}"
-    assert Path(response.raw_uri) == tmp_path / "raw" / digest[:2] / f"{digest}.json"
-    assert Path(response.raw_uri).read_bytes() == body
+    stored = client.raw_store.resolve(response.raw_uri)
+    assert stored == tmp_path / "raw" / digest[:2] / f"{digest}.json"
+    assert stored.read_bytes() == body
+    assert response.raw_uri.startswith("inst:catalog/")
 
 
 @respx.mock

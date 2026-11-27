@@ -62,8 +62,8 @@ def test_live_research_returns_real_hashed_sources(tmp_path: Path, stores: Store
     for src in result.sources:
         assert src.url.startswith("https://")
         assert live_window[0] <= src.retrieved_at <= live_window[1]  # not a fixture timestamp
-        assert src.raw_uri is not None and Path(src.raw_uri).is_file()
-        digest = hashlib.sha256(Path(src.raw_uri).read_bytes()).hexdigest()
+        assert src.raw_uri is not None and client.raw_store.resolve(src.raw_uri).is_file()
+        digest = hashlib.sha256(client.raw_store.read(src.raw_uri)).hexdigest()
         assert src.content_hash == f"sha256:{digest}"
     providers_seen = {s.provider for s in result.sources}
     assert providers_seen & {"arxiv", "openalex"}

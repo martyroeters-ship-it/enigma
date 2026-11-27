@@ -19,6 +19,7 @@ import yaml
 
 from enigma.agents.base import TaskRequest, delegate
 from enigma.api.readmodels import HEARTBEAT_PREFIX, ReadModels
+from enigma.core.errors import IntegrityError
 from enigma.core.hashing import sha256_hex
 from enigma.core.logging import get_logger
 from enigma.fsm import RESEARCH_CYCLE
@@ -108,6 +109,7 @@ class Daemon:
         self._until_idle = False
         self._isolation_until: datetime | None = None
         self._isolation_block = ""
+        self.preflight_note = ""
 
     # ------------------------------------------------------------------ lifecycle
     def install_signal_handlers(self) -> None:
@@ -119,9 +121,22 @@ class Daemon:
         signal.signal(signal.SIGINT, handler)
 
     def startup(self) -> list[str]:
+        from enigma.orchestrator.quarantine import prepare_runtime  # noqa: PLC0415
+
+        report = prepare_runtime(self.inst.settings, self.inst.stores)
+        self.preflight_note = report.text().split("\n", 1)[0]
+        if report.unresolved:
+            self.preflight_note += f"; quarantined {len(report.unresolved)} artifact reference(s)"
+        elif report.legacy:
+            self.preflight_note += (
+                f"; {report.legacy} absolute path(s) still resolve; run enigma home migrate"
+            )
         requeued = self.inst.stores.queue.requeue_orphans(local_worker_alive)
         self.inst.stores.audit.record(
-            "system", "daemon.started", self.worker_name, {"requeued_tasks": requeued}
+            "system",
+            "daemon.started",
+            self.worker_name,
+            {"requeued_tasks": requeued, "unresolved_artifacts": len(report.unresolved)},
         )
         self.heartbeat("starting", force=True)
         return requeued
@@ -219,7 +234,8 @@ class Daemon:
         try:
             requeued = self.startup()
             if on_step is not None:
-                on_step(0, f"started; requeued {len(requeued)}")
+                note = f"; {self.preflight_note}" if self.preflight_note else ""
+                on_step(0, f"started; requeued {len(requeued)}{note}")
             while not self.stop.is_set():
                 progressed = self.step()
                 iterations += 1
@@ -368,12 +384,22 @@ class Daemon:
             inputs_budget=self._remaining_slots(),
             policy=policy,
         )
-        chosen = allocate(agenda, capacity=1, technology_share=0.0) if open_slot else ()
-        self._record_cio_decision(agenda, chosen)
-        self._publish_operations(agenda, reason if not open_slot else "")
-        if not open_slot or not chosen:
-            return False
-        candidate = chosen[0].candidate
+        viable = tuple(item for item in agenda.ranked if item.viable) if open_slot else ()
+        opened: tuple[ScoredCandidate, ...] = ()
+        pause = reason if not open_slot else ""
+        for item in viable:
+            try:
+                if self._open_ranked(item.candidate):
+                    opened = (item,)
+                    break
+            except IntegrityError as exc:
+                self._quarantine(item.candidate, exc)
+                pause = f"quarantined {item.candidate.id}"
+        self._record_cio_decision(agenda, opened)
+        self._publish_operations(agenda, "" if opened else pause)
+        return bool(opened)
+
+    def _open_ranked(self, candidate: Candidate) -> bool:
         if candidate.kind == "next_experiment" and candidate.proposal_id:
             return self._open_proposal(candidate.proposal_id)
         if candidate.kind == "market_scan":
@@ -385,6 +411,15 @@ class Daemon:
         if candidate.kind == "opportunity" and len(candidate.refs) == 3:
             return self._open_opportunity(candidate.refs)
         return False
+
+    def _quarantine(self, candidate: Candidate, exc: IntegrityError) -> None:
+        from enigma.orchestrator.quarantine import (  # noqa: PLC0415
+            candidate_symbols,
+            quarantine_candidate,
+        )
+
+        symbols = candidate_symbols(self.inst.stores, candidate)
+        quarantine_candidate(self.inst.stores, candidate, str(exc), symbols)
 
     def _open_proposal(self, proposal_id: str) -> bool:
         docs = self.inst.stores.documents

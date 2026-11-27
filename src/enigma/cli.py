@@ -11,6 +11,7 @@ import typer
 import yaml
 
 from enigma.core.config import Settings
+from enigma.core.errors import IntegrityError
 from enigma.fsm import ALL_MACHINES, RESEARCH_CYCLE, StateMachineStore
 from enigma.store import Stores
 from enigma.store.ledger import KILL_SWITCH
@@ -144,7 +145,11 @@ def research(
     else:
         typer.echo(f"cycle {cycle_id} submitted")
     if run:
-        _daemon(inst).run(until_idle=True)
+        try:
+            _daemon(inst).run(until_idle=True)
+        except (RuntimeError, IntegrityError) as exc:
+            typer.echo(str(exc))
+            raise typer.Exit(code=1) from exc
         typer.echo(f"cycle {cycle_id}: {inst.fsm.state(RESEARCH_CYCLE, cycle_id)}")
 
 
@@ -178,7 +183,7 @@ def up() -> None:
 
     try:
         n = daemon.run(until_idle=False, on_step=_progress)
-    except RuntimeError as exc:
+    except (RuntimeError, IntegrityError) as exc:
         typer.echo(str(exc))
         raise typer.Exit(code=1) from exc
     typer.echo(f"daemon stopped after {n} iterations")
@@ -194,7 +199,11 @@ def run_daemon(
     inst = _institution()
     daemon = _daemon(inst)
     daemon.install_signal_handlers()
-    n = daemon.run(until_idle=until_idle, max_iterations=max_iterations)
+    try:
+        n = daemon.run(until_idle=until_idle, max_iterations=max_iterations)
+    except (RuntimeError, IntegrityError) as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from exc
     typer.echo(f"daemon stopped after {n} iterations")
 
 
@@ -207,7 +216,11 @@ def resume() -> None:
     daemon.install_signal_handlers()
     active = inst.driver.active_cycles()
     typer.echo(f"resuming {len(active)} cycle(s): {', '.join(active) or '-'}")
-    daemon.run(until_idle=True)
+    try:
+        daemon.run(until_idle=True)
+    except (RuntimeError, IntegrityError) as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from exc
     for cycle_id in active:
         typer.echo(f"cycle {cycle_id}: {inst.fsm.state(RESEARCH_CYCLE, cycle_id)}")
 
@@ -246,6 +259,39 @@ def kill_switch(state: Annotated[str, typer.Argument(help="on | off")]) -> None:
 
 sandbox_app = typer.Typer(help="Strategy sandbox backends")
 app.add_typer(sandbox_app, name="sandbox")
+
+home_app = typer.Typer(help="Institutional home portability")
+app.add_typer(home_app, name="home")
+
+
+@home_app.command("migrate")
+def home_migrate() -> None:
+    """Rewrite copied absolute artifact paths into portable institutional URIs."""
+    from enigma.store.relocate import migrate_home  # noqa: PLC0415
+
+    settings, stores = _stores()
+    try:
+        report = migrate_home(settings, stores)
+    finally:
+        stores.db.close()
+    typer.echo(report.text())
+    if report.refused:
+        raise typer.Exit(code=1)
+
+
+@home_app.command("preflight")
+def home_preflight() -> None:
+    """Report artifact references that do not resolve under the current home."""
+    from enigma.store.relocate import inspect_home  # noqa: PLC0415
+
+    settings, stores = _stores()
+    try:
+        report = inspect_home(settings, stores)
+    finally:
+        stores.db.close()
+    typer.echo(report.text())
+    if report.refused:
+        raise typer.Exit(code=1)
 
 
 @sandbox_app.command("status")

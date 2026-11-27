@@ -47,13 +47,16 @@ class Source(StrictModel):
     abstract: str | None = Field(default=None, description="Verbatim retrieved abstract/summary")
     external_ids: dict[str, str] = Field(default_factory=dict, description="doi, arxiv, openalex")
     content_hash: Sha256
-    raw_uri: str | None = Field(default=None, description="Path of stored raw response")
+    raw_uri: str | None = Field(
+        default=None, description="Portable inst:<anchor>/<path> of the stored raw response"
+    )
     cited_source_ids: tuple[str, ...] = ()
     retrieved_by: Actor
     retrieved_at: UtcDatetime
     query: str | None = Field(default=None, description="Query that surfaced this source")
     raw_response_uri: str | None = Field(
-        default=None, description="Stored full HTTP response the record was parsed from"
+        default=None,
+        description="Portable inst:<anchor>/<path> of the stored HTTP response",
     )
     raw_response_hash: Sha256 | None = Field(
         default=None, description="sha256 of the full HTTP response bytes"

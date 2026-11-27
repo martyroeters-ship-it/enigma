@@ -86,6 +86,13 @@ def kind_of(model: type[BaseModel]) -> tuple[str, Plane]:
         raise KeyError(f"{model.__name__} is not a registered document kind") from exc
 
 
+def model_for_kind(kind: str) -> type[BaseModel]:
+    for model, (registered, _plane) in _KINDS.items():
+        if registered == kind:
+            return model
+    raise KeyError(f"{kind} is not a registered document kind")
+
+
 for _model, _kind, _plane in (
     (ResearchObjective, "objective", Plane.CONTROL),
     (Task, "task", Plane.CONTROL),

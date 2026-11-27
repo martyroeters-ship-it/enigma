@@ -18,6 +18,7 @@ import polars as pl
 from enigma.agents import AgentWorker, ContractRegistry
 from enigma.comm import MessageBus
 from enigma.core.clock import SystemClock
+from enigma.core.config import Settings
 from enigma.core.hashing import sha256_of
 from enigma.fsm import RESEARCH_CYCLE, STRATEGY_LIFECYCLE, StateMachineStore
 from enigma.orchestrator.bindings import CoreTools, Services, build_registry
@@ -43,6 +44,21 @@ from enigma.schemas.validation import (
 from enigma.store import Stores
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def isolated_settings(db: Path) -> Settings:
+    """Settings whose home is the test directory, not the process environment."""
+    home = db.parent
+    return Settings(
+        home=home,
+        research_dir=home / "research",
+        validation_dir=home / "validation",
+        execution_dir=home / "execution",
+        db_path=db,
+        registries_dir=ROOT / "registries",
+    )
+
+
 COST = CostModel(
     version="cm-test",
     taker_fee_bps=5,

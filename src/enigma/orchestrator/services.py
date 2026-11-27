@@ -24,6 +24,7 @@ from enigma.core.clock import Clock
 from enigma.core.config import Settings
 from enigma.core.errors import PermissionDeniedError
 from enigma.core.hashing import sha256_of
+from enigma.core.paths import StorageRoots, bind_uri
 from enigma.data import DataCatalog
 from enigma.fsm import StateMachineStore
 from enigma.gateway import ModelGateway, ModelRegistry, StructuredLLM
@@ -111,6 +112,8 @@ class OperationalServices:
         self.policy = policy
         self.clock = clock
         self.fsm = StateMachineStore(stores.db, stores.audit)
+        roots = StorageRoots.from_settings(settings)
+        self.roots = roots
         self.research_catalog = DataCatalog(
             settings.research_dir / "data",
             stores.documents,
@@ -119,6 +122,7 @@ class OperationalServices:
             okx_cross_check=True,
             costs=stores.costs,
             clock=clock,
+            roots=roots,
         )
         validation_catalog = DataCatalog(
             settings.validation_dir / "data",
@@ -127,6 +131,7 @@ class OperationalServices:
             AgentRole.INDEPENDENT_VALIDATION,
             costs=stores.costs,
             clock=clock,
+            roots=roots,
         )
         self.holdout_source = CatalogHoldoutSource(validation_catalog, policy.research_start, clock)
         self.sandbox = SandboxRunner(audit=stores.audit, actor="strategy_sandbox")
@@ -269,7 +274,7 @@ class OperationalServices:
             "metrics": {k: float(v) for k, v in result.metrics.items()},
             "resources": {"sandbox_cpu_seconds": float(run.cpu_seconds)},
             "result_hash": result.result_hash,
-            "artifact_uri": str(artifact),
+            "artifact_uri": bind_uri(artifact, self.roots),
             "isolation": run.isolation,
         }
 
@@ -290,7 +295,7 @@ class OperationalServices:
         kb = KnowledgeBase(view, self.clock)
         client = HttpClient(
             HttpBudget(budget.budget.max_http_requests),
-            RawStore(self.settings.research_dir / "raw" / "intelligence"),
+            RawStore(self.settings.research_dir / "raw" / "intelligence", roots=self.roots),
             user_agent=self.settings.http_user_agent,
         )
         query = ResearchQuery(

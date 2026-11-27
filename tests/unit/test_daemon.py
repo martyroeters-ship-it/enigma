@@ -8,10 +8,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from cycle_rig import Rig
+from cycle_rig import Rig, isolated_settings
 
 from enigma.api.readmodels import ReadModels
-from enigma.core.config import Settings
 from enigma.core.ids import new_id
 from enigma.fsm import RESEARCH_CYCLE
 from enigma.orchestrator.daemon import Daemon, Schedule, local_worker_alive
@@ -26,7 +25,7 @@ def _daemon(rig: Rig, **overrides: Any) -> Daemon:
     rig.worker.agents[AgentRole.TECHNOLOGY_INNOVATION] = TechnologyInnovationAgent()
     rig.worker.roles = tuple(rig.worker.agents)
     inst = Institution(
-        Settings.from_env(),
+        isolated_settings(rig.stores.db.path or Path("enigma-test.sqlite3")),
         rig.stores,
         rig.bus,
         rig.fsm,

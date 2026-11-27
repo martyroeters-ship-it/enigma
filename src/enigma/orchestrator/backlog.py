@@ -24,6 +24,7 @@ from enigma.orchestrator.planning import (
     proposal_candidates,
     read_record,
 )
+from enigma.orchestrator.quarantine import candidate_symbols, load_quarantine
 from enigma.research.mechanisms import MECHANISMS
 from enigma.schemas.cycle import NextExperimentProposal
 from enigma.schemas.market import MarketScanReport
@@ -179,9 +180,24 @@ def apply_direction_policy(
 ) -> Agenda:
     directions = direction_history(stores)
     mechanisms = mechanism_history(directions)
+    quarantine = load_quarantine(stores)
     ranked: list[ScoredCandidate] = []
     for item in agenda.ranked:
         candidate = item.candidate
+        if quarantine.datasets or quarantine.symbols or quarantine.candidates:
+            blocked = quarantine.reason(candidate, candidate_symbols(stores, candidate))
+            if blocked:
+                ranked.append(
+                    _mark(
+                        item,
+                        viable=False,
+                        reason=(
+                            "quarantine: dataset inaccessible; the objective was not "
+                            "opened and validation was not run"
+                        ),
+                    )
+                )
+                continue
         mechanism = candidate.family.removeprefix("fam_").split("|", 1)[0]
         mech_hist = mechanisms.get(mechanism)
         abandoned = (
