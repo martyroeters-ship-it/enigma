@@ -1,0 +1,20 @@
+# Public market-data providers the institution may use without a paid key.
+# An observable that is not listed here is unmet. It is not filled with another series.
+
+providers:
+  - id: binance_public_archive
+    license: "Binance public market-data archive. No API key. Redistribution follows Binance terms."
+    reliability: "Exchange-operated archive of its own USD-M perpetual and spot trades."
+    history_start: "2020-01-01"
+    spend_usd: 0
+    observables:
+      - funding_rate
+      - perp_open
+      - perp_high
+      - perp_low
+      - perp_close
+      - perp_volume
+      - perp_quote_volume
+      - spot_close
+      - basis
+    adapter: perp_funding_panel

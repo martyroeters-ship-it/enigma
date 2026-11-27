@@ -149,12 +149,32 @@ def _outliers(panel: pl.DataFrame, max_abs_log_return: float) -> DataQualityChec
     )
 
 
+def _event_inside_bar(rows: pl.DataFrame, stamp: datetime) -> bool:
+    hit = rows.filter((pl.col("ts") < stamp) & (pl.col("available_at") >= stamp))
+    return hit.height > 0
+
+
 def _funding_alignment(
-    panel: pl.DataFrame, funding_events: Mapping[str, pl.DataFrame] | None
+    panel: pl.DataFrame,
+    funding_events: Mapping[str, pl.DataFrame] | None,
+    length: timedelta,
 ) -> DataQualityCheck:
-    joined_bad = panel.filter(
-        pl.col("funding_time").is_not_null() & (pl.col("funding_time") != pl.col("available_at"))
-    ).height
+    # Eight-hour research keeps the historical rule: the recorded settlement is the bar close.
+    # Other sampling frequencies record the last settlement inside the bar, which can be the
+    # close, and they are allowed to contain settlements that are not themselves bar closes.
+    if length == FUNDING_INTERVAL:
+        joined_bad = panel.filter(
+            pl.col("funding_time").is_not_null()
+            & (pl.col("funding_time") != pl.col("available_at"))
+        ).height
+    else:
+        joined_bad = panel.filter(
+            pl.col("funding_time").is_not_null()
+            & (
+                (pl.col("funding_time") <= pl.col("ts"))
+                | (pl.col("funding_time") > pl.col("available_at"))
+            )
+        ).height
     off_grid = 0
     unmatched = 0
     examples: list[str] = []
@@ -169,8 +189,13 @@ def _funding_alignment(
         micros = window["funding_time"].dt.epoch("us")
         grid = window.filter(micros % (FUNDING_INTERVAL // timedelta(microseconds=1)) != 0)
         off_grid += grid.height
-        closes = set(rows["available_at"].to_list())
-        missing = [t for t in window["funding_time"].to_list() if t not in closes]
+        if length == FUNDING_INTERVAL:
+            closes = set(rows["available_at"].to_list())
+            missing = [t for t in window["funding_time"].to_list() if t not in closes]
+        else:
+            missing = [
+                t for t in window["funding_time"].to_list() if not _event_inside_bar(rows, t)
+            ]
         unmatched += len(missing)
         examples.extend(f"{symbol}@{t.isoformat()}" for t in missing[:_MAX_EXAMPLES])
     return _check(
@@ -277,7 +302,7 @@ def check_panel(
         _gaps(panel, length),
         _ohlc(panel),
         _outliers(panel, max_abs_log_return),
-        _funding_alignment(panel, funding_events),
+        _funding_alignment(panel, funding_events, length),
         _funding_coverage(panel, min_funding_coverage),
         _spot_coverage(panel, min_spot_coverage),
     ]

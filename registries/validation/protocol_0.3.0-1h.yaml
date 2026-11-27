@@ -1,0 +1,70 @@
+# Enigma validation protocol 0.3.0-1h.
+#
+# Human-owned. This file does not replace 0.1.0-slice or 1.0.0. Eight-hour research
+# keeps the protocol the process loaded. When that is 1.0.0, eight-hour validation
+# keeps every 1.0.0 gate. This protocol is the same gate set, with bar counts scaled
+# from eight-hour bars to one-hour bars (multiply by 8) and annualization 24 * 365.
+#
+# 0.2.0-1h is not used for new seals: it omitted G04, G08, G09, G10, G11 and G15.
+# Sampling frequency is not the holding period. label_horizon_bars remains the hold,
+# in one-hour bars. The embargo is at least seven days and longer when the hold requires it.
+
+protocol_version: "0.3.0-1h"
+sampling_frequency: "1h"
+annualization_periods_per_year: 8760
+
+required_gates: [G01, G02, G03, G04, G06, G07, G08, G09, G10, G11, G12, G15, G16]
+
+gates:
+  G01:
+    name: pit_integrity
+    max_violations: 0
+  G02:
+    name: chronological_split
+    holdout_fraction: 0.30
+    min_embargo_bars: 168
+    embargo_horizon_multiple: 3
+  G03:
+    name: out_of_sample
+    min_holdout_net_sharpe: 0.5
+    min_holdout_bars: 2160
+    top_days_removed: 5
+  G04:
+    name: walk_forward
+    n_folds: 6
+    min_positive_fraction: 0.5
+  G06:
+    name: multiple_testing
+    alpha: 0.05
+    correction: holm_bonferroni
+    require_registered_trials: true
+  G07:
+    name: deflated_sharpe
+    min_dsr_probability: 0.95
+  G08:
+    name: pbo
+    max_pbo: 0.5
+    n_splits: 16
+  G09:
+    name: parameter_sensitivity
+    relative_step: 0.10
+    min_ratio: 0.5
+  G10:
+    name: regime_stress
+    vol_window_bars: 168
+    min_regime_bars: 240
+  G11:
+    name: bootstrap
+    n_boot: 1000
+    mean_block_bars: 80
+    alpha: 0.05
+  G12:
+    name: costs
+    cost_stress_multiplier: 2.0
+    min_stressed_net_sharpe: 0.0
+  G15:
+    name: benchmark_dominance
+    benchmarks: [flat, buy_and_hold_perp]
+  G16:
+    name: reproducibility
+    max_abs_metric_delta: 1.0e-9

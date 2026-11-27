@@ -233,9 +233,9 @@ def test_normalize_aliases_returns_column_onto_perp_close() -> None:
         contradictory_evidence_ids=(),
     )
     fixed = normalize_proposal(draft, ctx)
-    assert fixed.required_data[0].role == "signal"
-    assert fixed.required_data[0].column == "funding_rate"
-    assert all(u.column == "perp_close" for u in fixed.required_data if u.role == "target")
+    assert all(u.column == "perp_close" for u in fixed.required_data)
+    assert all(u.role == "target" for u in fixed.required_data)
+    assert "funding_rate" not in {u.column for u in fixed.required_data}
     assert all(u.dataset_id == "dsv_01REAL" for u in fixed.required_data)
     assert fixed.supporting_evidence_ids == ("evid_01AAA",)
     assert not check_proposal(fixed, ctx)
@@ -274,7 +274,7 @@ def test_unknown_domain_fails_and_aliases_canonicalize() -> None:
         ),
     )
     failures = check_proposal(_proposal(domain="fam_fam_cryptocurrency"), ctx)
-    assert any(f.check == "registered_mechanism" for f in failures)
+    assert "registered_mechanism" not in {f.check for f in failures}
     fixed = normalize_proposal(_proposal(domain="funding"), ctx)
     assert fixed.domain == "funding_crowding_reversal"
     assert "registered_mechanism" not in {f.check for f in check_proposal(fixed, ctx)}

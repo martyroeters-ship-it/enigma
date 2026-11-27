@@ -147,7 +147,11 @@ uv run enigma dashboard --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000/ . JSON lives at `/api/health`, `/api/cycles`, `/api/learning`, `/api/costs`, `/api/models`, `/api/agents`, `/api/knowledge`.
 
-`ENIGMA_VALIDATION_PROTOCOL=1.0.0` opts that process into the full gate set. It does not change `PROTOCOL_VERSION` in the source, which stays `0.1.0-slice`.
+`ENIGMA_VALIDATION_PROTOCOL=1.0.0` opts an eight-hour process into the full gate set. It does not change `PROTOCOL_VERSION` in the source, which stays `0.1.0-slice`, so a holdout sealed under the slice stays readable. One-hour and one-day research use protocols `0.3.0-1h` and `0.3.0-1d`. Those carry the same required gates as protocol 1.0.0. The bar counts (embargo, holdout, volatility window, regime length, bootstrap block) are scaled to the sampling frequency. Protocols `0.2.0-1h` and `0.2.0-1d` remain registered so an accidental seal can still be read. They are not selected for new work.
+
+`enigma report` prints research hours, scientific and technical failures, inference cost, novel mechanisms, acquisition outcomes, and adopted improvements for the current home. `enigma accept --home <isolated-copy>` reads an isolated copy and refuses the active `ENIGMA_HOME`. It does not trade, spend, or reseal a holdout. Each criterion is printed as passed, failed, or blocked. Exit 0 is `ACCEPTED` and means every mandatory criterion passed. Exit 2 means at least one failed. Exit 3 means nothing failed but a mandatory criterion is blocked, which is `NOT ACCEPTED`. `enigma bench` scores installed local models on the frozen 32-task suite and prices hosted models without calling them. Do not point these commands at `~/enigma-run` from an experimental branch.
+
+A discovered objective uses the evidence already stored with its scientific case and compiles that case's research program. It does not score the seed library and it does not ask the model to write a replacement strategy. `enigma inquire` scores one local completion and does not register it. `enigma inquire --register` registers the reply only when it is a complete case that cites stored non-AI evidence. A malformed reply stays unregistered. Run it on an isolated copy.
 
 ## Stop
 

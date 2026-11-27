@@ -31,6 +31,7 @@ from enigma.schemas.governance import (
     Reflection,
     Task,
 )
+from enigma.schemas.inquiry import AcquisitionRecord, ScientificCase
 from enigma.schemas.knowledge import (
     Author,
     EvidenceItem,
@@ -110,6 +111,8 @@ for _model, _kind, _plane in (
     (RegisteredHypothesis, "registered_hypothesis", Plane.RESEARCH),
     (GenerationResult, "hypothesis_generation", Plane.RESEARCH),
     (DatasetAcquisitionRequest, "dataset_acquisition_request", Plane.RESEARCH),
+    (ScientificCase, "scientific_case", Plane.RESEARCH),
+    (AcquisitionRecord, "acquisition_record", Plane.RESEARCH),
     (StrategySpec, "strategy_spec", Plane.RESEARCH),
     (StrategyGenerationRecord, "strategy_generation", Plane.RESEARCH),
     (Experiment, "experiment", Plane.RESEARCH),

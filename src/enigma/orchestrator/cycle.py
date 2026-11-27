@@ -7,13 +7,14 @@ delegation is idempotent, and every step is checkpointed before the next begins.
 
 from __future__ import annotations
 
+import inspect
 import math
 import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -27,6 +28,9 @@ from enigma.core.ids import new_id
 from enigma.fsm import RESEARCH_CYCLE, STRATEGY_LIFECYCLE, StateMachineStore
 from enigma.learning.abort import lessons_from_aborted_cycle
 from enigma.learning.postmortem import postmortem_for_abort, postmortem_for_validation
+from enigma.orchestrator.failures import record_execution_failure
+from enigma.research.horizons import sampling_frequency
+from enigma.research.inquiry import case_for_objective, registered_case_retrieval
 from enigma.research.mechanisms import MECHANISMS
 from enigma.schemas.common import AgentRole, ClaimLevel, Instrument
 from enigma.schemas.cycle import NextExperimentProposal
@@ -104,7 +108,8 @@ class CycleDriver:
                 + "); refusing a second writer"
             )
         symbols = sorted({i.symbol for i in instruments})
-        research_end = self.research_cutoff(symbols)
+        frequency = sampling_frequency(topics)
+        research_end = self._resolve_cutoff(symbols, frequency)
         if research_end <= self.policy.research_start:
             raise ValueError("research cutoff precedes the research data start")
         now = self.clock.now()
@@ -126,6 +131,7 @@ class CycleDriver:
             "symbols": symbols,
             "research_start": self.policy.research_start.isoformat(),
             "research_end": research_end.isoformat(),
+            "sampling_frequency": frequency,
             "started_at": now.isoformat(),
         }
         self.stores.checkpoints.save(cycle_id, WORKFLOW, "OBJECTIVE_RECEIVED", state, "running")
@@ -146,7 +152,8 @@ class CycleDriver:
             raise ValueError("a research cycle is already running; refusing a second writer")
         objective = self.stores.documents.require(ResearchObjective, objective_id)
         symbols = sorted({item.symbol for item in objective.instruments})
-        research_end = self.research_cutoff(symbols)
+        frequency = sampling_frequency(objective.topics)
+        research_end = self._resolve_cutoff(symbols, frequency)
         if research_end <= self.policy.research_start:
             raise ValueError("research cutoff precedes the research data start")
         now = self.clock.now()
@@ -158,6 +165,7 @@ class CycleDriver:
             "symbols": symbols,
             "research_start": self.policy.research_start.isoformat(),
             "research_end": research_end.isoformat(),
+            "sampling_frequency": frequency,
             "started_at": now.isoformat(),
             "origin": "market_scan",
         }
@@ -171,6 +179,22 @@ class CycleDriver:
         return cycle_id
 
     # ---------------------------------------------------------------- helpers
+    def _resolve_cutoff(self, symbols: list[str], frequency: str) -> datetime:
+        """Ask the cutoff for this sampling frequency when the callable accepts it.
+
+        Test doubles are `lambda symbols: cutoff`. They keep working, and an 8h seal is
+        unchanged. A production cutoff that takes `frequency` seals 1h and 1d separately.
+        """
+        fn = self.research_cutoff
+        try:
+            parameters = inspect.signature(fn).parameters
+        except (TypeError, ValueError):
+            return fn(symbols)
+        if "frequency" in parameters:
+            richer = cast(Callable[..., datetime], fn)
+            return richer(symbols, frequency=frequency)
+        return fn(symbols)
+
     def _state(self, cycle_id: str) -> dict[str, Any]:
         loaded = self.stores.checkpoints.load(cycle_id)
         if loaded is None:
@@ -231,6 +255,9 @@ class CycleDriver:
         if self.stores.documents.get(Reflection, reflection.id) is None:
             self.stores.documents.put(reflection, recorded_by=CIO.value)
         state["abort_reflection_id"] = reflection.id
+        state["failure_class"] = record_execution_failure(
+            self.stores, str(state.get("objective_id") or ""), reason, self.clock.now()
+        )
         if lessons and not self.stores.documents.list(
             NextExperimentProposal, where={"parent_cycle_id": cycle_id}
         ):
@@ -345,12 +372,25 @@ class CycleDriver:
             "symbols": state["symbols"],
             "start": state["research_start"],
             "end": state["research_end"],
-            "frequency": "8h",
+            "frequency": state.get("sampling_frequency") or "8h",
         }
 
     def _from_objective_received(self, cycle_id: str, state: dict[str, Any]) -> bool:
         research_inputs = self._research_inputs(state)
         intel = self._task(cycle_id, "intelligence.research", research_inputs)
+        objective = self.stores.documents.require(ResearchObjective, state["objective_id"])
+        case = case_for_objective(objective, self.stores.documents.get)
+        if case is not None and intel.status is TaskStatus.PENDING:
+            retrieved = registered_case_retrieval(case, self.stores.documents.get)
+            if retrieved is not None:
+                self.stores.queue.complete(intel.id, retrieved)
+                self.stores.audit.record(
+                    CIO.value,
+                    "cycle.case_evidence_used",
+                    cycle_id,
+                    {"case_id": case.id, "task_id": intel.id},
+                )
+                intel = self._get(intel.id)
         reused = self._reuse_prior_research(
             str(research_inputs["topic"]), [str(k) for k in research_inputs["keywords"]]
         )

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Report{% endblock %}
+{% block content %}
+<h1>Institutional report</h1>
+<div class="grid">
+  <div class="card"><div class="k">Productive hours</div><div class="v">{{ report.productive_research_hours }}</div></div>
+  <div class="card"><div class="k">Passes</div><div class="v">{{ report.passes }}</div></div>
+  <div class="card"><div class="k">Scientific failures</div><div class="v">{{ report.scientific_failures }}</div></div>
+  <div class="card"><div class="k">Method failures</div><div class="v">{{ report.method_failures }}</div></div>
+  <div class="card"><div class="k">Technical failures</div><div class="v">{{ report.technical_failures }}</div></div>
+  <div class="card"><div class="k">Inference USD</div><div class="v">{{ report.inference.usd }}</div></div>
+  <div class="card"><div class="k">Novel mechanisms</div><div class="v">{{ report.novel_mechanisms|length }}</div></div>
+  <div class="card"><div class="k">Adopted improvements</div><div class="v">{{ report.improvements_adopted }}</div></div>
+</div>
+<p class="muted">{{ report.idle_note }}</p>
+<h2>Diversity</h2>
+<pre>{{ report.diversity | tojson_pretty }}</pre>
+<h2>Designs</h2>
+<pre>{{ report.design_counts | tojson_pretty }}</pre>
+{% endblock %}

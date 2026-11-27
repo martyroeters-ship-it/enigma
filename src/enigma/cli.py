@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 import httpx
@@ -318,6 +319,99 @@ def sandbox_prepare() -> None:
         typer.echo(str(exc))
         raise typer.Exit(code=1) from exc
     typer.echo(detail)
+
+
+@app.command()
+def report() -> None:
+    """Print the institutional report for the current home. Read-only."""
+    from enigma.orchestrator.report import build_report, render_text  # noqa: PLC0415
+
+    _settings, stores = _stores()
+    try:
+        typer.echo(render_text(build_report(stores)))
+    finally:
+        stores.db.close()
+
+
+@app.command()
+def accept(
+    home: Annotated[Path, typer.Option(help="Isolated copy of an institutional home.")],
+) -> None:
+    """Assess an isolated home. Refuses the active ENIGMA_HOME. Does not trade or spend."""
+    from enigma.orchestrator.acceptance import assess, refuse_active_home, verdict  # noqa: PLC0415
+
+    active = os.environ.get("ENIGMA_HOME", "").strip()
+    refusal = refuse_active_home(home, Path(active) if active else None)
+    if refusal:
+        typer.echo(refusal)
+        raise typer.Exit(code=1)
+    os.environ["ENIGMA_HOME"] = str(home)
+    _settings, stores = _stores()
+    try:
+        body = assess(stores)
+    finally:
+        stores.db.close()
+    decision = verdict(body["criteria"])
+    counts = decision["counts"]
+    typer.echo(f"{decision['label']}. {decision['note']}")
+    typer.echo(f"passed {counts['pass']}, failed {counts['fail']}, blocked {counts['blocked']}")
+    for item in body["criteria"]:
+        typer.echo(f"{item['n']}. {item['status']}: {item['name']} — {item['evidence']}")
+    if decision["code"]:
+        raise typer.Exit(code=decision["code"])
+
+
+@app.command()
+def bench(
+    out: Annotated[
+        Path | None,
+        typer.Option(help="Optional path for the JSON result. Does not write the active home."),
+    ] = None,
+) -> None:
+    """Score installed local models on the frozen suite. Does not call a paid API."""
+    from enigma.research.reasoning_suite import run_frozen_suite  # noqa: PLC0415
+
+    result = run_frozen_suite(progress_path=out)
+    text = json.dumps(result, indent=2)
+    if out is not None:
+        out.write_text(text, encoding="utf-8")
+    typer.echo(text)
+    if result.get("paid_calls"):
+        raise typer.Exit(code=2)
+
+
+@app.command()
+def inquire(
+    register: Annotated[
+        bool,
+        typer.Option(
+            "--register",
+            help="Register the reply only when it is a valid case citing stored evidence.",
+        ),
+    ] = False,
+) -> None:
+    """Ask the local model once. A malformed reply is not turned into a seed mechanism."""
+    from datetime import UTC, datetime  # noqa: PLC0415
+
+    from enigma.research.inquiry import case_from_model  # noqa: PLC0415
+    from enigma.research.intelligence_bench import run_local_suite  # noqa: PLC0415
+    from enigma.schemas.knowledge import EvidenceItem  # noqa: PLC0415
+
+    _settings, stores = _stores()
+    try:
+        evidence = stores.documents.list(EvidenceItem, limit=200)
+        ids = {item.id for item in evidence if not item.is_ai_interpretation}
+        result = run_local_suite(ids)
+        if register:
+            parsed = result.get("parsed")
+            result["registration"] = case_from_model(
+                stores, parsed if isinstance(parsed, dict) else {}, datetime.now(UTC)
+            )
+    finally:
+        stores.db.close()
+    typer.echo(json.dumps(result, indent=2, default=str))
+    if result["status"] == "model_unavailable":
+        raise typer.Exit(code=0)
 
 
 @app.command()

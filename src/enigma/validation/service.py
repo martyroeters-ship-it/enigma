@@ -67,13 +67,14 @@ from enigma.strategy.sandbox import SandboxJob, SandboxResult, SandboxRunner
 from enigma.strategy.static_check import StrategyRejectedError
 from enigma.validation import gates as gate_lib
 from enigma.validation.build import validator_build_sha
+from enigma.validation.corrections import research_dataset_overlaps_embargo
 from enigma.validation.holdout import (
     HoldoutCustody,
     HoldoutSource,
     bar_delta,
     holdout_split_index,
 )
-from enigma.validation.protocol import ValidationProtocol, load_protocol
+from enigma.validation.protocol import ValidationProtocol, load_protocol, protocol_for_sampling
 
 ACTOR = SystemActor.VALIDATION_SERVICE.value
 TRUNCATION_CHECKPOINTS_PER_SYMBOL = 8
@@ -166,34 +167,70 @@ class ValidationService:
 
     # ---------------------------------------------------------------- public API
 
-    def seal_holdout(self, symbols: Sequence[str], label_horizon_bars: int = 1) -> datetime:
+    def seal_holdout(
+        self,
+        symbols: Sequence[str],
+        label_horizon_bars: int = 1,
+        frequency: str | None = None,
+    ) -> datetime:
         """Seal (or reuse) the holdout for `symbols`; return the research cutoff.
 
         Research data must have `ts` strictly before the returned instant (embargo start).
         Only the boundary is returned; no holdout rows leave the validation plane.
+        Eight-hour seals keep the protocol already loaded on this service. One-hour and
+        one-day seals use their own protocol version, so they do not rewrite an 8h manifest.
+        `label_horizon_bars` is the holding period in sampling bars, not the bar length.
         """
+        freq = frequency or self.frequency
+        protocol = protocol_for_sampling(freq, self.protocol)
+        self._bind_source_frequency(freq)
         manifest, frame = self.custody.seal(
             symbols,
-            self.frequency,
-            self.protocol.version,
-            float(self.protocol.gate("G02")["holdout_fraction"]),
+            freq,
+            protocol.version,
+            float(protocol.gate("G02")["holdout_fraction"]),
             self.holdout_source,
             self.clock,
         )
         bars = frame.get_column("ts").unique().sort()
         split = int(bars.search_sorted(manifest.holdout_start))
-        embargo = gate_lib.embargo_bars(self.protocol.gate("G02"), label_horizon_bars)
+        embargo = gate_lib.embargo_bars(protocol.gate("G02"), label_horizon_bars)
         cutoff = bars[max(split - embargo, 0)]
         assert isinstance(cutoff, datetime)
         peer = peer_clock()
         if peer is not None:
-            assert_clock_skew(self.clock.now(), peer, embargo * bar_delta(self.frequency))
+            assert_clock_skew(self.clock.now(), peer, embargo * bar_delta(freq))
         return cutoff
 
     def validate(self, request: ValidationRequest) -> ValidationReport:
         existing = self.custody.get_report(report_id_for(request.id))
         if existing is not None:
             return existing
+        freq = self._dataset_frequency(request)
+        protocol = protocol_for_sampling(freq, self.protocol)
+        saved = (self.protocol, self.frequency, self.engine)
+        self.protocol = protocol
+        self.frequency = freq
+        self.engine = BarBacktestEngine(protocol.periods_per_year)
+        self._bind_source_frequency(freq)
+        try:
+            return self._validate_bound(request)
+        finally:
+            self.protocol, self.frequency, self.engine = saved
+            self._bind_source_frequency(saved[1])
+
+    def _dataset_frequency(self, request: ValidationRequest) -> str:
+        dataset = self.documents.get(DatasetVersion, request.dataset_version_id)
+        if dataset is None or not dataset.frequency:
+            return self.frequency
+        return dataset.frequency
+
+    def _bind_source_frequency(self, frequency: str) -> None:
+        source = self.holdout_source
+        if hasattr(source, "acquire_frequency"):
+            source.acquire_frequency = frequency
+
+    def _validate_bound(self, request: ValidationRequest) -> ValidationReport:
         inputs = self._preflight(request)
         package = inputs.package
         # A request interrupted mid-run resumes from VALIDATION_RUNNING; gates are deterministic.
@@ -460,7 +497,9 @@ class ValidationService:
         dataset_ids = {x.request.dataset_version_id, *(e.dataset_version_id for e in x.experiments)}
         for dataset_id in sorted(dataset_ids):
             dataset = self.documents.get(DatasetVersion, dataset_id)
-            if dataset is not None and _ns(dataset.time_end) >= x.embargo_start_ns:
+            if dataset is not None and research_dataset_overlaps_embargo(
+                _ns(dataset.time_end), x.embargo_start_ns
+            ):
                 overlaps.append({"kind": "research_dataset_overlaps_embargo", "id": dataset_id})
         return overlaps
 
@@ -647,7 +686,9 @@ class ValidationService:
     def _regimes(self, x: _Inputs, holdout: BacktestResult) -> dict[str, dict[str, float]]:
         """Holdout net Sharpe by realized-vol tercile. Vol at bar t uses closes up to t-1;
         tercile cut points come from the research period only."""
-        window = int(gate_lib.INFORMATIVE_GATES["G10"]["vol_window_bars"])
+        window = int(
+            (self.protocol.gates.get("G10") or gate_lib.INFORMATIVE_GATES["G10"])["vol_window_bars"]
+        )
         vol = (
             x.frame.sort(["symbol", "ts"])
             .with_columns(

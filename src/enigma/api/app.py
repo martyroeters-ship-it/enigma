@@ -78,6 +78,18 @@ def create_app(settings: Settings | None = None, stores: Stores | None = None) -
     def models(request: Request) -> HTMLResponse:
         return page(request, "models.html", m=rm.model_usage())
 
+    @app.get("/report", response_class=HTMLResponse)
+    def report(request: Request) -> HTMLResponse:
+        from enigma.orchestrator.report import build_report  # noqa: PLC0415
+
+        return page(request, "report.html", report=build_report(stores))
+
+    @app.get("/api/report")
+    def api_report() -> dict[str, Any]:
+        from enigma.orchestrator.report import build_report  # noqa: PLC0415
+
+        return build_report(stores)
+
     @app.get("/audit", response_class=HTMLResponse)
     def audit(request: Request) -> HTMLResponse:
         return page(request, "audit.html", entries=rm.audit(), costs=rm.costs())

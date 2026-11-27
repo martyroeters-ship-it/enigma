@@ -292,6 +292,9 @@ class BarBacktestEngine:
         bar_return = np.zeros(n)
         bar_return[1:] = close[1:] / close[:-1] - 1.0
         price = held * bar_return
+        # `funding` is the panel column: null hours are already 0. A 1h bar must not
+        # carry an 8h settlement that did not fall inside that hour. Costs below are
+        # basis points per unit of turnover and do not depend on the sampling frequency.
         funding_pnl = -held * funding if cost_model.apply_funding else np.zeros(n)
         turnover = np.abs(np.diff(executed, prepend=0.0))
         linear_bps = cost_model.taker_fee_bps + cost_model.half_spread_bps
