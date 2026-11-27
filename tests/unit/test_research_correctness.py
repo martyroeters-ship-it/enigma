@@ -23,7 +23,7 @@ from enigma.validation.corrections import (
     research_dataset_overlaps_embargo,
 )
 from enigma.validation.gates import embargo_bars
-from enigma.validation.protocol import load_protocol
+from enigma.validation.protocol import load_protocol, protocol_for_sampling
 
 
 def test_annualization_matches_the_sampling_frequency() -> None:
@@ -39,23 +39,44 @@ def test_annualization_matches_the_sampling_frequency() -> None:
     assert hourly != pytest.approx(eight)
 
 
-def test_frequency_protocols_keep_the_eight_hour_seal_and_use_calendar_embargoes() -> None:
+def test_frequency_protocols_keep_the_eight_hour_seal_and_the_full_gate_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     sealed = load_protocol()
+    full = load_protocol(version="1.0.0")
     assert sealed.version == "0.1.0-slice"
-    assert sealed.periods_per_year == 1095
-    assert embargo_bars(sealed.gate("G02"), 1) == 21
-    hourly = load_protocol(version="0.2.0-1h")
-    daily = load_protocol(version="0.2.0-1d")
+    assert tuple(full.required_gates) == (
+        "G01",
+        "G02",
+        "G03",
+        "G04",
+        "G06",
+        "G07",
+        "G08",
+        "G09",
+        "G10",
+        "G11",
+        "G12",
+        "G15",
+        "G16",
+    )
+    hourly = load_protocol(version="0.3.0-1h")
+    daily = load_protocol(version="0.3.0-1d")
+    assert tuple(hourly.required_gates) == tuple(full.required_gates)
+    assert tuple(daily.required_gates) == tuple(full.required_gates)
     assert hourly.periods_per_year == 8760
     assert daily.periods_per_year == 365
-    # Seven days, expressed in sampling bars. A long holding period extends the embargo.
     assert embargo_bars(hourly.gate("G02"), 1) == 168
     assert embargo_bars(hourly.gate("G02"), 100) == 300
     assert embargo_bars(daily.gate("G02"), 1) == 7
-    assert int(hourly.gate("G03")["min_holdout_bars"]) == 2160
-    assert int(daily.gate("G03")["min_holdout_bars"]) == 90
-    assert hourly.sha256 != sealed.sha256
-    assert daily.sha256 != sealed.sha256
+    assert int(hourly.gate("G10")["vol_window_bars"]) == 168
+    assert int(daily.gate("G11")["mean_block_bars"]) == 4
+    assert hourly.gate("G04") == full.gate("G04")
+    assert hourly.gate("G15")["benchmarks"] == full.gate("G15")["benchmarks"]
+    assert protocol_for_sampling("1h", sealed).version == "0.3.0-1h"
+    assert protocol_for_sampling("8h", full).version == "1.0.0"
+    monkeypatch.setenv("ENIGMA_VALIDATION_PROTOCOL", "1.0.0")
+    assert load_protocol().version == "1.0.0"
 
 
 def test_dataset_ending_on_the_embargo_start_is_not_an_overlap() -> None:

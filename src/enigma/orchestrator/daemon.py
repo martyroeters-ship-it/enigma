@@ -403,9 +403,32 @@ class Daemon:
             except IntegrityError as exc:
                 self._quarantine(item.candidate, exc)
                 pause = f"quarantined {item.candidate.id}"
+        if open_slot and not opened:
+            discovered = self._open_discovered(blocked)
+            if discovered:
+                self.inst.stores.audit.record(
+                    CIO.value,
+                    "cycle.discovered_opened",
+                    discovered,
+                    {},
+                )
+                self._record_cio_decision(agenda, ())
+                self._publish_operations(agenda, "")
+                return True
         self._record_cio_decision(agenda, opened)
         self._publish_operations(agenda, "" if opened else pause)
         return bool(opened)
+
+    def _open_discovered(self, blocked: set[str]) -> str:
+        from enigma.research.inquiry import next_discovered_objective  # noqa: PLC0415
+
+        objective = next_discovered_objective(self.inst.stores)
+        if objective is None or objective.id in blocked:
+            return ""
+        try:
+            return self.inst.driver.open_objective(objective.id)
+        except (KeyError, ValueError):
+            return ""
 
     def _open_ranked(self, candidate: Candidate) -> bool:
         if candidate.kind == "next_experiment" and candidate.proposal_id:

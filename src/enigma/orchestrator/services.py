@@ -209,6 +209,9 @@ class OperationalServices:
                 f"research acquisition must end at or before the sealed cutoff {cutoff.isoformat()}"
             )
         ds = self.research_catalog.acquire_perp_funding_panel(symbols, start, end, frequency)
+        from enigma.data.acquisition import settle_open_requests  # noqa: PLC0415
+
+        settle_open_requests(self.stores, ds, self.clock.now())
         return {
             "dataset_version_id": ds.id,
             "content_hash": ds.content_hash,

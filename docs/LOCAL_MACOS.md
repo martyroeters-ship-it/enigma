@@ -147,7 +147,9 @@ uv run enigma dashboard --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000/ . JSON lives at `/api/health`, `/api/cycles`, `/api/learning`, `/api/costs`, `/api/models`, `/api/agents`, `/api/knowledge`.
 
-`ENIGMA_VALIDATION_PROTOCOL=1.0.0` opts that process into the full gate set. It does not change `PROTOCOL_VERSION` in the source, which stays `0.1.0-slice`.
+`ENIGMA_VALIDATION_PROTOCOL=1.0.0` opts an eight-hour process into the full gate set. It does not change `PROTOCOL_VERSION` in the source, which stays `0.1.0-slice`, so a holdout sealed under the slice stays readable. One-hour and one-day research use protocols `0.3.0-1h` and `0.3.0-1d`. Those carry the same required gates as protocol 1.0.0. The bar counts (embargo, holdout, volatility window, regime length, bootstrap block) are scaled to the sampling frequency. Protocols `0.2.0-1h` and `0.2.0-1d` remain registered so an accidental seal can still be read. They are not selected for new work.
+
+`enigma report` prints research hours, scientific and technical failures, inference cost, novel mechanisms and adopted improvements for the current home. `enigma accept --home <isolated-copy>` reads an isolated copy and refuses the active `ENIGMA_HOME`. It does not trade, spend, or reseal a holdout. A criterion it cannot observe is reported as blocked. Do not point either command at `~/enigma-run` from an experimental branch.
 
 ## Stop
 

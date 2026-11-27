@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from enigma.research.mechanisms import MECHANISMS, canonical_domain
+from enigma.research.mechanisms import canonical_domain
 from enigma.schemas.quant import (
     CheckFailure,
     ColumnUse,
@@ -70,12 +70,6 @@ _COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
     "spot": ("spot_close", "spot"),
 }
 
-_ROLE_FALLBACKS: dict[str, tuple[str, ...]] = {
-    "signal": ("funding_rate", "basis", "perp_volume", "perp_close"),
-    "target": ("perp_close", "spot_close", "close"),
-    "control": ("basis", "perp_volume", "funding_rate", "spot_close"),
-}
-
 
 def _is_empty_evidence_sentinel(eid: str) -> bool:
     """LLMs often emit 'none' instead of an empty contradictory list; treat as no citation."""
@@ -92,13 +86,8 @@ def resolve_column(name: str, available: frozenset[str], role: str) -> str | Non
     for candidate in _COLUMN_ALIASES.get(spaced, ()) + _COLUMN_ALIASES.get(key, ()):
         if candidate in available:
             return candidate
-    for candidate in _ROLE_FALLBACKS.get(role, ()):
-        if candidate in available:
-            return candidate
-    # Last resort: any non-meta numeric panel column.
-    for candidate in sorted(available):
-        if candidate not in {"symbol", "ts", "available_at", "funding_time"}:
-            return candidate
+    # An unmatched name is missing data. It is not replaced with another column.
+    del role
     return None
 
 
@@ -144,21 +133,6 @@ def _normalize_required_data(
         if use.role in {"signal", "control"} and use.min_lag_bars < 0:
             updates["min_lag_bars"] = 0
         required.append(use.model_copy(update=updates) if updates else use)
-
-    if required and not any(u.role == "signal" for u in required):
-        signal_ds = required[0].dataset_id
-        available = columns.get(signal_ds, frozenset())
-        signal_col = resolve_column("funding_rate", available, "signal")
-        if signal_col is not None:
-            required.insert(
-                0,
-                ColumnUse(
-                    dataset_id=signal_ds,
-                    column=signal_col,
-                    role="signal",
-                    min_lag_bars=0,
-                ),
-            )
     return required
 
 
@@ -222,16 +196,8 @@ def check_proposal(  # noqa: PLR0912 - each gate is an independent explicit fail
     """Return every failed check (empty tuple means the proposal may proceed)."""
     failures: list[CheckFailure] = []
     domain = canonical_domain(proposal.domain)
-    if domain not in MECHANISMS and domain != "novel":
-        failures.append(
-            CheckFailure(
-                check="registered_mechanism",
-                detail=(
-                    f"domain {proposal.domain!r} is not a registered mechanism "
-                    f"({', '.join(sorted(MECHANISMS))}) or 'novel'"
-                ),
-            )
-        )
+    if not domain:
+        failures.append(CheckFailure(check="registered_mechanism", detail="domain is empty"))
     evidence_ids = context.evidence_ids()
     columns = context.columns_by_dataset()
     instruments = frozenset(context.instruments)

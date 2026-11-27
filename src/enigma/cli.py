@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 import httpx
@@ -318,6 +319,61 @@ def sandbox_prepare() -> None:
         typer.echo(str(exc))
         raise typer.Exit(code=1) from exc
     typer.echo(detail)
+
+
+@app.command()
+def report() -> None:
+    """Print the institutional report for the current home. Read-only."""
+    from enigma.orchestrator.report import build_report, render_text  # noqa: PLC0415
+
+    _settings, stores = _stores()
+    try:
+        typer.echo(render_text(build_report(stores)))
+    finally:
+        stores.db.close()
+
+
+@app.command()
+def accept(
+    home: Annotated[Path, typer.Option(help="Isolated copy of an institutional home.")],
+) -> None:
+    """Assess an isolated home. Refuses the active ENIGMA_HOME. Does not trade or spend."""
+    from enigma.orchestrator.acceptance import assess, refuse_active_home  # noqa: PLC0415
+
+    active = os.environ.get("ENIGMA_HOME", "").strip()
+    refusal = refuse_active_home(home, Path(active) if active else None)
+    if refusal:
+        typer.echo(refusal)
+        raise typer.Exit(code=1)
+    os.environ["ENIGMA_HOME"] = str(home)
+    _settings, stores = _stores()
+    try:
+        body = assess(stores)
+    finally:
+        stores.db.close()
+    fails = [item for item in body["criteria"] if item["status"] == "fail"]
+    for item in body["criteria"]:
+        typer.echo(f"{item['n']}. {item['status']}: {item['name']} — {item['evidence']}")
+    if fails:
+        raise typer.Exit(code=2)
+
+
+@app.command()
+def inquire() -> None:
+    """Ask the local model once. Does not register a case and does not call a paid model."""
+    from enigma.research.intelligence_bench import run_local_suite  # noqa: PLC0415
+    from enigma.schemas.knowledge import EvidenceItem  # noqa: PLC0415
+
+    _settings, stores = _stores()
+    try:
+        evidence = stores.documents.list(EvidenceItem, limit=200)
+        ids = {item.id for item in evidence if not item.is_ai_interpretation}
+        result = run_local_suite(ids)
+    finally:
+        stores.db.close()
+    typer.echo(json.dumps(result, indent=2, default=str))
+    if result["status"] == "model_unavailable":
+        raise typer.Exit(code=0)
 
 
 @app.command()

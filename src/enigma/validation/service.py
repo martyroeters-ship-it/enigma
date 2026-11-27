@@ -686,7 +686,9 @@ class ValidationService:
     def _regimes(self, x: _Inputs, holdout: BacktestResult) -> dict[str, dict[str, float]]:
         """Holdout net Sharpe by realized-vol tercile. Vol at bar t uses closes up to t-1;
         tercile cut points come from the research period only."""
-        window = int(gate_lib.INFORMATIVE_GATES["G10"]["vol_window_bars"])
+        window = int(
+            (self.protocol.gates.get("G10") or gate_lib.INFORMATIVE_GATES["G10"])["vol_window_bars"]
+        )
         vol = (
             x.frame.sort(["symbol", "ts"])
             .with_columns(
