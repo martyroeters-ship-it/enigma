@@ -30,6 +30,26 @@ class Anomaly:
     suggested_mechanism: str
 
 
+def _dedupe_rows(rows: Sequence[Mapping[str, Any]], field: str) -> list[Mapping[str, Any]]:
+    """One row per timestamp. Identical copies collapse. Conflicting values are dropped.
+
+    A repeated copy of the same bar would shrink the sample variance and inflate the
+    z-score. Two different values at the same timestamp are not averaged and not chosen
+    between; that timestamp is not an observation.
+    """
+    grouped: dict[datetime, list[Mapping[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(row["available_at"], []).append(row)
+    kept: list[Mapping[str, Any]] = []
+    for stamp in sorted(grouped):
+        group = grouped[stamp]
+        values = {float(item[field]) for item in group}
+        if len(values) != 1:
+            continue
+        kept.append(group[0])
+    return kept
+
+
 def scan_rows(
     rows: Sequence[Mapping[str, Any]],
     *,
@@ -43,14 +63,16 @@ def scan_rows(
     """Rolling z-score on values known at or before `cutoff`, strongest first."""
     if window < 2 or min_samples < 2 or min_samples > window:
         raise ValueError("window must cover min_samples and both must be at least 2")
-    usable = [
-        row
-        for row in rows
-        if row.get("available_at") is not None
-        and row["available_at"] <= cutoff
-        and row.get(field) is not None
-    ]
-    usable.sort(key=lambda row: (row["available_at"], row.get("symbol", symbol)))
+    usable = _dedupe_rows(
+        [
+            row
+            for row in rows
+            if row.get("available_at") is not None
+            and row["available_at"] <= cutoff
+            and row.get(field) is not None
+        ],
+        field,
+    )
     values = [float(row[field]) for row in usable]
     findings: list[Anomaly] = []
     for index, value in enumerate(values):

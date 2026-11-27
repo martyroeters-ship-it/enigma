@@ -4,12 +4,12 @@ Row semantics (one row per `symbol` and bar):
 - `ts` is the bar open (UTC); `available_at = ts + bar_length` is the bar close, the instant at
   which every field in the row is known. Strategies may only act on a row at or after
   `available_at`.
-- `funding_rate` is the rate settled at the Binance funding event whose time equals
-  `available_at`. Binance USD-M settles BTC/ETH funding at 00:00, 08:00 and 16:00 UTC, which are
-  exactly the closes of the 8h bars opening at 16:00 (previous day), 00:00 and 08:00. So the
-  event at 08:00 lands on the bar [00:00, 08:00). Bars whose close has no funding event (or
-  whose event is missing from the archives) carry null `funding_rate` and `funding_time`.
-  Funding events not on a bar close are not joined; `quality.check_panel` flags them.
+- `funding_rate` is the sum of Binance funding settlements with `ts < funding_time <=
+  available_at`. BTC/ETH settle at 00:00, 08:00 and 16:00 UTC. On an 8h grid that is exactly
+  one settlement, at the bar close. On a 1h grid only the bar that closes on a settlement
+  carries a rate; the other hours are null, and the engine treats null as no payment. On a
+  1d grid the bar sums every settlement inside the day. A single 8h print is never repeated
+  on every shorter bar. `funding_time` is the last settlement included in that sum.
 - `basis = perp_close / spot_close - 1`, both closes taken at `available_at`.
 - Range: rows with `ts >= start` and `available_at <= end`, so no row carries information
   from after `end` (research catalogs cap `end` before the holdout).
@@ -63,6 +63,15 @@ def bar_length(frequency: str) -> timedelta:
         raise ValueError(f"unsupported frequency {frequency!r}") from exc
 
 
+def periods_per_year(frequency: str) -> int:
+    """Bars in a 365-day year. Eight-hour bars are 3 * 365 = 1095, matching protocol 0.1.0-slice."""
+    seconds = bar_length(frequency).total_seconds()
+    per_day = 86400 / seconds
+    if abs(per_day - round(per_day)) > 1e-9:
+        raise ValueError(f"frequency {frequency!r} does not divide a UTC day")
+    return round(per_day) * 365
+
+
 def _utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         raise ValueError("datetimes must be timezone-aware")
@@ -105,6 +114,67 @@ def fetch_perp_funding_sources(
     return sources
 
 
+def _funding_at_close(frame: pl.DataFrame, events: pl.DataFrame | None) -> pl.DataFrame:
+    """Historical 8h join: the settlement whose time equals the bar close, unchanged.
+
+    Newly acquired 8h panels must keep the pinned content hash. Do not replace this
+    with a sum that would perturb those bits.
+    """
+    if events is None or events.height == 0:
+        return frame.with_columns(
+            pl.lit(None, dtype=pl.Float64).alias("funding_rate"),
+            pl.lit(None, dtype=UTC_DT).alias("funding_time"),
+        )
+    return frame.join(
+        events.select(pl.col("funding_time").alias("available_at"), "funding_rate", "funding_time"),
+        on="available_at",
+        how="left",
+    )
+
+
+def _funding_inside_bar(frame: pl.DataFrame, events: pl.DataFrame | None) -> pl.DataFrame:
+    """Sum the settlements with bar open < funding_time <= bar close.
+
+    Used for sampling frequencies other than 8h. A 1h bar therefore carries a rate
+    only when a settlement falls inside that hour. A 1d bar sums the settlements in
+    the day. The recorded rate is the sum of those prints, not a repeated 8h rate.
+    """
+    blank = frame.with_columns(
+        pl.lit(None, dtype=pl.Float64).alias("funding_rate"),
+        pl.lit(None, dtype=UTC_DT).alias("funding_time"),
+    )
+    if events is None or events.height == 0:
+        return blank
+    settled = events.select("funding_time", "funding_rate").drop_nulls(
+        ["funding_time", "funding_rate"]
+    )
+    if settled.height == 0:
+        return blank
+    paired = (
+        frame.select("ts", "available_at")
+        .join(settled, how="cross")
+        .filter(
+            (pl.col("funding_time") > pl.col("ts"))
+            & (pl.col("funding_time") <= pl.col("available_at"))
+        )
+    )
+    if paired.height == 0:
+        return blank
+    totals = paired.group_by("ts").agg(
+        pl.col("funding_rate").sum(),
+        pl.col("funding_time").max(),
+    )
+    return frame.join(totals, on="ts", how="left")
+
+
+def _attach_funding(
+    frame: pl.DataFrame, events: pl.DataFrame | None, length: timedelta
+) -> pl.DataFrame:
+    if length == timedelta(hours=8):
+        return _funding_at_close(frame, events)
+    return _funding_inside_bar(frame, events)
+
+
 def assemble_perp_funding_panel(
     perp: Mapping[str, pl.DataFrame],
     spot: Mapping[str, pl.DataFrame],
@@ -137,20 +207,7 @@ def assemble_perp_funding_panel(
             )
         else:
             frame = frame.with_columns(pl.lit(None, dtype=pl.Float64).alias("spot_close"))
-        events = funding.get(symbol)
-        if events is not None and events.height:
-            frame = frame.join(
-                events.select(
-                    pl.col("funding_time").alias("available_at"), "funding_rate", "funding_time"
-                ),
-                on="available_at",
-                how="left",
-            )
-        else:
-            frame = frame.with_columns(
-                pl.lit(None, dtype=pl.Float64).alias("funding_rate"),
-                pl.lit(None, dtype=UTC_DT).alias("funding_time"),
-            )
+        frame = _attach_funding(frame, funding.get(symbol), length)
         frame = frame.with_columns(
             (pl.col("perp_close") / pl.col("spot_close") - 1.0).alias("basis")
         )

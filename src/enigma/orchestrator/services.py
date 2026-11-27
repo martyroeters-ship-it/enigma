@@ -82,17 +82,21 @@ class CatalogHoldoutSource:
         self.catalog = catalog
         self.data_start = data_start
         self.clock = clock
-        self._versions: dict[tuple[tuple[str, ...], datetime, datetime], DatasetVersion] = {}
+        self.acquire_frequency = "8h"
+        self._versions: dict[tuple[tuple[str, ...], datetime, datetime, str], DatasetVersion] = {}
 
     def available_range(self, symbols: Sequence[str]) -> tuple[datetime, datetime]:
         today = self.clock.now().astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         return self.data_start, today - timedelta(days=1)
 
     def _version(self, symbols: Sequence[str], start: datetime, end: datetime) -> DatasetVersion:
-        key = (tuple(sorted(symbols)), start, end)
+        frequency = self.acquire_frequency
+        if frequency not in {"1h", "8h", "1d"}:
+            frequency = "8h"
+        key = (tuple(sorted(symbols)), start, end, frequency)
         if key not in self._versions:
             self._versions[key] = self.catalog.acquire_perp_funding_panel(
-                list(symbols), start, end, "8h"
+                list(symbols), start, end, frequency
             )
         return self._versions[key]
 
@@ -137,7 +141,7 @@ class OperationalServices:
         self.sandbox = SandboxRunner(audit=stores.audit, actor="strategy_sandbox")
         self.engine = BarBacktestEngine()
         self._validation: ValidationService | None = None
-        self._cutoffs: dict[tuple[str, ...], datetime] = {}
+        self._cutoffs: dict[tuple[Any, ...], datetime] = {}
         self.gateway = ModelGateway(
             ModelRegistry.load(settings.registries_dir / "models"),
             stores.costs,
@@ -165,10 +169,15 @@ class OperationalServices:
             )
         return self._validation
 
-    def research_cutoff(self, symbols: Sequence[str]) -> datetime:
-        key = tuple(sorted(symbols))
+    def research_cutoff(self, symbols: Sequence[str], frequency: str = "8h") -> datetime:
+        freq = frequency if frequency in {"1h", "8h", "1d"} else "8h"
+        legacy = tuple(sorted(symbols))
+        key: tuple[Any, ...] = (legacy, freq)
+        if freq == "8h" and legacy in self._cutoffs and key not in self._cutoffs:
+            return self._cutoffs[legacy]
         if key not in self._cutoffs:
-            self._cutoffs[key] = self.validation.seal_holdout(key)
+            self.holdout_source.acquire_frequency = freq
+            self._cutoffs[key] = self.validation.seal_holdout(legacy, frequency=freq)
         return self._cutoffs[key]
 
     def validation_run(self, request_id: str) -> dict[str, Any]:
@@ -194,7 +203,7 @@ class OperationalServices:
         frequency: str,
         budget: BudgetTracker | None = None,
     ) -> dict[str, Any]:
-        cutoff = self.research_cutoff(symbols)
+        cutoff = self.research_cutoff(symbols, frequency)
         if end > cutoff:
             raise PermissionDeniedError(
                 f"research acquisition must end at or before the sealed cutoff {cutoff.isoformat()}"

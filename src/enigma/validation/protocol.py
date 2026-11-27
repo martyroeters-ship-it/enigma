@@ -32,6 +32,15 @@ PROTOCOL_REGISTRY: dict[str, tuple[Path, str]] = {
         _REG_DIR / "protocol_1.0.0.yaml",
         "cc80810e833b08f599afc847eb77361c23bb42c28ee3311de3d7c81dc476a785",
     ),
+    # Sampling-frequency protocols. They do not replace the sealed 8h protocol.
+    "0.2.0-1h": (
+        _REG_DIR / "protocol_0.2.0-1h.yaml",
+        "c2cadcd397b958c4fc9dc9f07717fd2c1307fedfaffa7bfa743822b9bb0e46c7",
+    ),
+    "0.2.0-1d": (
+        _REG_DIR / "protocol_0.2.0-1d.yaml",
+        "62e7293626fb59ec9f32816e58c0e1c9193e599cfede6033cc3a095980b45947",
+    ),
 }
 
 REQUIRED_KEYS = ("protocol_version", "required_gates", "annualization_periods_per_year", "gates")
@@ -107,3 +116,20 @@ def load_protocol(
         gates=gates,
         sha256=digest,
     )
+
+
+def protocol_for_sampling(frequency: str, current: ValidationProtocol) -> ValidationProtocol:
+    """Protocol for a dataset's sampling frequency.
+
+    Eight-hour research keeps the protocol already loaded on the service, so an
+    existing sealed holdout and any historical 8h report stay on that version.
+    One-hour and one-day research use their own pinned protocols. The label
+    horizon is not a frequency: callers still pass it separately as bars.
+    """
+    if frequency == "1h":
+        return load_protocol(version="0.2.0-1h")
+    if frequency == "1d":
+        return load_protocol(version="0.2.0-1d")
+    if frequency in {"8h", ""}:
+        return current
+    raise IntegrityError(f"no pinned validation protocol for sampling frequency {frequency!r}")

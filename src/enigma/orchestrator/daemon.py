@@ -385,8 +385,16 @@ class Daemon:
             policy=policy,
         )
         viable = tuple(item for item in agenda.ranked if item.viable) if open_slot else ()
+        from enigma.orchestrator.failures import block_reason, blocked_ids  # noqa: PLC0415
+
+        now = self.inst.clock.now()
+        blocked = blocked_ids(self.inst.stores, now) if open_slot else set()
+        skipped = tuple(item for item in viable if item.candidate.id in blocked)
+        viable = tuple(item for item in viable if item.candidate.id not in blocked)
         opened: tuple[ScoredCandidate, ...] = ()
         pause = reason if not open_slot else ""
+        if open_slot and skipped and not viable:
+            pause = block_reason(self.inst.stores, skipped[0].candidate.id)
         for item in viable:
             try:
                 if self._open_ranked(item.candidate):
@@ -649,10 +657,13 @@ class Daemon:
     def _schedule_market_scan(self) -> bool:
         if self.schedule.market_scan_interval_hours <= 0:
             return False
+        from enigma.core.paths import StorageRoots  # noqa: PLC0415
+
         created = run_market_scan(
             self.inst.stores,
             self.inst.clock.now(),
             interval_hours=self.schedule.market_scan_interval_hours,
+            roots=StorageRoots.from_settings(self.inst.settings),
         )
         opened = self._open_scan_objective()
         return created or opened

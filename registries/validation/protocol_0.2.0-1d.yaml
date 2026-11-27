@@ -1,0 +1,48 @@
+# Enigma validation protocol 0.2.0-1d.
+#
+# Human-owned. This file does not replace protocol 0.1.0-slice. Eight-hour research
+# continues to use that pinned protocol, and its sealed holdouts stay under that version.
+#
+# Sampling frequency is one day. The label horizon, in sampling bars, is the holding
+# period and is separate from the bar length. The embargo is at least seven daily bars,
+# and longer when the holding period requires it. Annualization is 365.
+# A daily bar sums the funding settlements that occur after its open and at or before
+# its close. It does not repeat a single eight-hour rate three times, and it does not
+# drop the settlements that are not exactly on the daily close.
+
+protocol_version: "0.2.0-1d"
+sampling_frequency: "1d"
+holding_period_note: "label_horizon_bars is the holding period in 1d bars, not the sampling frequency"
+annualization_periods_per_year: 365
+
+required_gates: [G01, G02, G03, G06, G07, G12, G16]
+
+gates:
+  G01:
+    name: pit_integrity
+    max_violations: 0
+  G02:
+    name: chronological_split
+    holdout_fraction: 0.30
+    min_embargo_bars: 7
+    embargo_horizon_multiple: 3
+  G03:
+    name: out_of_sample
+    min_holdout_net_sharpe: 0.5
+    min_holdout_bars: 90
+    top_days_removed: 5
+  G06:
+    name: multiple_testing
+    alpha: 0.05
+    correction: holm_bonferroni
+    require_registered_trials: true
+  G07:
+    name: deflated_sharpe
+    min_dsr_probability: 0.95
+  G12:
+    name: costs
+    cost_stress_multiplier: 2.0
+    min_stressed_net_sharpe: 0.0
+  G16:
+    name: reproducibility
+    max_abs_metric_delta: 1.0e-9

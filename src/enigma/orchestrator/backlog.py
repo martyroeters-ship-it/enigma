@@ -1,9 +1,10 @@
 """Ranked research backlog: mechanisms, instruments, and timeframes.
 
-A direction is one mechanism on one instrument at one horizon. Completing it once is
-enough unless a lesson recorded a positive gross edge that costs then destroyed.
-A mechanism that keeps failing is abandoned. The ranker prefers information gain and
-novelty over running more copies of the same question.
+A direction is one mechanism on one instrument at one sampling frequency. Completing it
+once is enough unless a lesson recorded a positive gross edge that costs then destroyed.
+A mechanism is set aside only after every seeded direction has a scientific result and
+none passed. An abort, a missing dataset, and a method-only gate (G01, G02, G16) are
+not that result. The ranker prefers information gain and novelty over repeating a question.
 """
 
 from __future__ import annotations
@@ -16,7 +17,6 @@ from enigma.orchestrator.cio import (
     FamilyHistory,
     ResearchPrioritizer,
     ScoredCandidate,
-    information_gain,
 )
 from enigma.orchestrator.planning import (
     build_inputs,
@@ -29,12 +29,13 @@ from enigma.research.mechanisms import MECHANISMS
 from enigma.schemas.cycle import NextExperimentProposal
 from enigma.schemas.market import MarketScanReport
 from enigma.schemas.research import Hypothesis, ResearchObjective
+from enigma.schemas.validation import RedactedValidationSummary
 from enigma.store import Stores
 
 HORIZONS = ("1h", "8h", "1d")
 SYMBOLS = ("BTCUSDT", "ETHUSDT")
 REVISIT = "revisit:positive_gross_destroyed_by_costs"
-_INFO_GAIN_FLOOR = 0.35
+_METHOD_GATES = frozenset({"G01", "G02", "G16"})
 
 
 @dataclass(frozen=True)
@@ -53,8 +54,22 @@ def _completed(history: FamilyHistory | None) -> int:
     return history.passes + history.fails
 
 
+def _scientific_result(stores: Stores, state: dict[str, object], overall: str) -> bool:
+    """Method-only failures are not evidence about the mechanism."""
+    if overall == "PASS":
+        return True
+    summary_id = state.get("validation_summary_id")
+    if not isinstance(summary_id, str) or not summary_id:
+        return True
+    summary = stores.documents.get(RedactedValidationSummary, summary_id)
+    if summary is None:
+        return True
+    failed = set(summary.failed_gate_names)
+    return not failed or not failed <= _METHOD_GATES
+
+
 def direction_history(stores: Stores) -> dict[str, FamilyHistory]:
-    """Completed validations only. An abort is not a scientific trial of the direction."""
+    """Completed scientific validations. Aborts and method-only gates are not trials."""
     hypotheses = {h.id: h for h in stores.documents.list(Hypothesis, limit=10_000)}
     counts: dict[str, dict[str, int]] = {}
     for cp in stores.checkpoints.list("research_cycle"):
@@ -64,6 +79,8 @@ def direction_history(stores: Stores) -> dict[str, FamilyHistory]:
             continue
         overall = state.get("validation_overall")
         if overall not in {"PASS", "FAIL"}:
+            continue
+        if not _scientific_result(stores, state, overall):
             continue
         mechanism = hyp.family_id.removeprefix("fam_")
         horizon = hyp.horizon or "8h"
@@ -164,6 +181,20 @@ def _mark(
     )
 
 
+def _seeded_directions_exhausted(
+    mechanism: str, directions: dict[str, FamilyHistory], policy: BacklogPolicy
+) -> bool:
+    """True only when every seeded symbol and sampling frequency has failed scientifically."""
+    keys = [direction_key(mechanism, symbol, horizon) for symbol in SYMBOLS for horizon in HORIZONS]
+    histories = [directions.get(key) for key in keys]
+    if any(item is None or _completed(item) < 1 for item in histories):
+        return False
+    completed = sum(_completed(item) for item in histories if item is not None)
+    if completed < policy.diminishing_returns_min_cycles:
+        return False
+    return all(item is not None and item.passes == 0 for item in histories)
+
+
 def _justified(stores: Stores, candidate: Candidate) -> bool:
     if candidate.proposal_id is None:
         return False
@@ -200,25 +231,24 @@ def apply_direction_policy(
                 continue
         mechanism = candidate.family.removeprefix("fam_").split("|", 1)[0]
         mech_hist = mechanisms.get(mechanism)
-        abandoned = (
-            mech_hist is not None
-            and mech_hist.passes == 0
-            and _completed(mech_hist) >= policy.diminishing_returns_min_cycles
-            and information_gain(mech_hist) < _INFO_GAIN_FLOOR
-        )
         exact: FamilyHistory | None = None
         if candidate.kind == "opportunity" and len(candidate.refs) == 3:
             mechanism_id, symbol, horizon = candidate.refs
             exact = directions.get(direction_key(mechanism_id, symbol, horizon))
         justified = _justified(stores, candidate)
-        if abandoned and not justified:
+        if (
+            mechanism in MECHANISMS
+            and _seeded_directions_exhausted(mechanism, directions, policy)
+            and not justified
+        ):
             ranked.append(
                 _mark(
                     item,
                     viable=False,
                     reason=(
-                        "diminishing returns: this mechanism has failed without a pass "
-                        "and is abandoned"
+                        "every seeded instrument and sampling frequency has a scientific "
+                        "result and none passed; infrastructure and method failures "
+                        "were not counted"
                     ),
                 )
             )

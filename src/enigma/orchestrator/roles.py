@@ -21,6 +21,7 @@ from enigma.learning.lessons import CycleEvidence, derive_lessons, propose_next
 from enigma.learning.review import review_institution
 from enigma.research.bridge import hypothesis_from_proposal
 from enigma.research.context import build_research_context
+from enigma.research.horizons import sampling_frequency
 from enigma.research.hybrid import compare_funding_to_returns
 from enigma.research.hypothesis import build_hypothesis, score_mechanisms
 from enigma.research.mechanisms import MECHANISMS, family_id_for_domain
@@ -237,6 +238,7 @@ class QuantResearchAgent(Agent):
             dataset_version_ids=(i["dataset_version_id"],),
             lesson_ids=tuple(les.id for les in lessons),
             parent=proposal,
+            horizon=sampling_frequency(objective.topics, MECHANISMS[chosen.mechanism_id].horizon),
         )
         decisions = [
             DecisionRecord(
@@ -431,6 +433,7 @@ class QuantResearchAgent(Agent):
             now=ctx.clock.now(),
             dataset_version_ids=(i["dataset_version_id"],),
             lesson_ids=tuple(les.id for les in lessons),
+            horizon=sampling_frequency(objective.topics, MECHANISMS[chosen.mechanism_id].horizon),
         )
         hypothesis = hypothesis.model_copy(
             update={

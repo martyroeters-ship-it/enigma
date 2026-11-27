@@ -61,3 +61,25 @@ def test_scan_is_deterministic() -> None:
     assert first == second
     assert len(first) == 2
     assert abs(first[0].zscore) >= abs(first[1].zscore)
+
+
+def test_duplicate_rows_do_not_inflate_the_zscore() -> None:
+    rows = _rows([0.0] * 19 + [10.0])
+    cutoff = START + timedelta(hours=19)
+    once = scan_rows(rows, symbol="BTCUSDT", field="funding_rate", cutoff=cutoff)
+    twice = scan_rows(rows + rows, symbol="BTCUSDT", field="funding_rate", cutoff=cutoff)
+    assert len(once) == len(twice) == 1
+    assert once[0].zscore == twice[0].zscore
+    assert once[0].sample_size == twice[0].sample_size
+
+
+def test_conflicting_values_at_one_timestamp_are_not_an_observation() -> None:
+    rows = _rows([0.0] * 19 + [10.0])
+    conflict = {
+        "available_at": rows[-1]["available_at"],
+        "funding_rate": -10.0,
+    }
+    ranked = scan_rows(
+        [*rows, conflict], symbol="BTCUSDT", field="funding_rate", cutoff=rows[-1]["available_at"]
+    )
+    assert ranked == ()

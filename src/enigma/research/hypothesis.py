@@ -135,6 +135,7 @@ def build_hypothesis(
     lesson_ids: Sequence[str] = (),
     parent: NextExperimentProposal | None = None,
     cost_model_version: str = "cm-binance-usdm-v1",
+    horizon: str | None = None,
 ) -> Hypothesis:
     grid = dict(mechanism.param_grid)
     if parent is not None:
@@ -145,7 +146,9 @@ def build_hypothesis(
         n_trials *= len(values)
     trial_budget = max(1, min(objective.max_trials, n_trials))
     family_id = f"fam_{mechanism.id}"
-    hyp_id = "hyp_" + sha256_hex(f"{cycle_id}|{mechanism.id}|{sorted(grid.items())}")[:26].upper()
+    chosen_horizon = horizon or mechanism.horizon
+    digest = sha256_hex(f"{cycle_id}|{mechanism.id}|{chosen_horizon}|{sorted(grid.items())}")
+    hyp_id = "hyp_" + digest[:26].upper()
     uncertainty = [
         f"evidence support={score.support:.0f}, contradiction={score.contradiction:.0f}, "
         f"data support={score.data_support:.2f}, lesson penalty={score.lesson_penalty:.2f}",
@@ -164,7 +167,7 @@ def build_hypothesis(
         formal_statement=mechanism.formal_statement,
         falsification_criteria=FALSIFICATION,
         instruments=tuple(instruments),
-        horizon=mechanism.horizon,
+        horizon=chosen_horizon,
         features=mechanism.features,
         search_space={k: tuple(v) for k, v in sorted(grid.items())},
         trial_budget=trial_budget,
