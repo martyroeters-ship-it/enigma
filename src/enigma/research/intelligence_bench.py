@@ -70,7 +70,7 @@ def score_case_text(
             "cite a supplied contradictory excerpt, or none when none was supplied",
         )
     )
-    predictions = body.get("predictions") if isinstance(body.get("predictions"), list) else []
+    predictions = _as_list(body.get("predictions"))
     falsifiable = any(
         isinstance(item, dict) and item.get("statement") and item.get("observable")
         for item in predictions
@@ -83,9 +83,9 @@ def score_case_text(
             "a prediction needs a statement and an observable",
         )
     )
-    program = body.get("program") if isinstance(body.get("program"), dict) else {}
+    program = _as_mapping(body.get("program"))
     design = str(program.get("design_class") or "")
-    comps = program.get("computations") if isinstance(program.get("computations"), list) else []
+    comps = _as_list(program.get("computations"))
     ops = {"identity", "zscore", "rank", "product", "difference", "threshold", "regime"}
     structured_ops = [item for item in comps if isinstance(item, dict) and item.get("op") in ops]
     scores.append(
@@ -107,7 +107,7 @@ def score_case_text(
             "one prediction must say which competing explanation it discriminates",
         )
     )
-    needs = body.get("data_needs") if isinstance(body.get("data_needs"), list) else []
+    needs = _as_list(body.get("data_needs"))
     scores.append(
         TaskScore(
             "data_requirements",
@@ -125,6 +125,18 @@ def score_case_text(
         )
     )
     return tuple(scores)
+
+
+def _as_list(value: object) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    return []
+
+
+def _as_mapping(value: object) -> dict[Any, Any]:
+    if isinstance(value, dict):
+        return value
+    return {}
 
 
 def _id_set(value: object) -> set[str]:
